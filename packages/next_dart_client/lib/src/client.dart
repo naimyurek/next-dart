@@ -3,10 +3,11 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
 import 'package:next_dart_protocol/next_dart_protocol.dart';
+import 'source.dart';
 
 /// Talks to a next-dart backend: fetches pages and dispatches actions, verifying
 /// each envelope's signature and decrypting its payload.
-class NextDartClient {
+class NextDartClient implements NextDartSource {
   final Uri baseUrl;
   final SimplePublicKey signingPublicKey;
   final SecretKey secretKey;
@@ -21,12 +22,14 @@ class NextDartClient {
     http.Client? httpClient,
   }) : _http = httpClient ?? http.Client();
 
+  @override
   Future<EnvelopeContent> fetchPage(String route) async {
     final res = await _http.get(
         baseUrl.replace(path: '/__page', queryParameters: {'route': route}));
     return _decode(res);
   }
 
+  @override
   Future<EnvelopeContent> dispatch(String action, Map<String, Object?> args,
       {required String route}) async {
     final res = await _http.post(

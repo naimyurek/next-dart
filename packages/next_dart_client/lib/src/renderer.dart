@@ -1,10 +1,6 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide ActionDispatcher;
 import 'package:next_dart_protocol/next_dart_protocol.dart';
-
-/// Called when a rendered widget fires an action. Implementations post to the
-/// server (server action) or run a pre-bundled client-local action.
-typedef ActionDispatcher = Future<void> Function(
-    String action, Map<String, Object?> args);
+import 'source.dart' show ActionDispatcher;
 
 /// A render engine maps decoded protocol content to a Flutter widget.
 /// The core ships only this interface — concrete engines (e.g. rfw) are separate
