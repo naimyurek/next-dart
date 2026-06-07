@@ -14,8 +14,8 @@ Changing the backend updates the running app instantly, with **no app-store rele
 
 ## 2. Goals
 
-1. **Backend-driven UI** — change the server, the app updates; no store submission for content, layout, flow, or logic changes.
-2. **Client update only for new native widgets** — everything else is server-driven.
+1. **Backend-driven UI** — change the server, the app updates; no store submission for content, layout, flow, logic, or composed components.
+2. **Client update only for new native widgets** — logic libraries and components composed from existing primitives are backend-only.
 3. **Store-safe** — no downloaded/executed code; declarative UI only.
 4. **Secure by default** — TLS + certificate pinning, signed payloads (authenticity/integrity), encrypted payloads (confidentiality), and a versioned protocol.
 5. **AI-friendly** — declarative pure-Dart authoring, a published JSON Schema for the wire tree, and a concise agent guide so an AI can author a working page with minimal context.
@@ -25,22 +25,25 @@ Changing the backend updates the running app instantly, with **no app-store rele
 
 - Shipping or executing arbitrary Dart or any scripting language on the client.
 - File-based routing, UI streaming, hot-reload, and a CLI (Phase 2).
+- Rich component authoring DX — a component registry, named/versioned component libraries, cross-page sharing. The composite **model** is in Phase 1; ergonomic tooling is Phase 2.
 - ECDH handshake and key rotation, ISR/advanced caching, pub.dev release, multi-platform polish (Phase 3).
 - A dependency-free built-in reference renderer (possible Phase 2; the rfw adapter is sufficient for the MVP).
 
 ## 4. Conceptual model — the Next.js mapping
 
-next-dart deliberately reuses Next.js's core insight: the server sends a **serialized description of a rendered component tree** (Next.js's RSC payload), while the client holds the **component implementations**. The one structural difference: in next-dart the interactive widgets are **pre-bundled in the client binary** (not downloaded as code), because we never ship executable code.
+next-dart deliberately reuses Next.js's core insight: the server sends a **serialized description of a rendered component tree** (Next.js's RSC payload), while the client holds the **component implementations**. The one structural difference: in next-dart the genuinely-native interactive widgets are **pre-bundled in the client binary** (not downloaded as code), because we never ship executable code.
 
 | Next.js | next-dart (interpreted Flutter UI) |
 |---|---|
 | File-based routing | Server route → page builder (explicit routing in Phase 1; file-based in Phase 2) |
 | Server Component (no JS shipped) | Server builds a **declarative widget tree** (data); only the *description* travels |
 | RSC payload | **Encrypted + signed + versioned** envelope (rfw-binary default, JSON debug) |
-| Client Component (JS downloaded) | **Pre-bundled native widget catalog** in the app binary — never downloaded |
+| Component composition (components built from primitives) | **Composite / Remote Components** — reusable sub-trees defined on the server, shipped as data; **no client update** (see §8) |
+| Client Component (JS downloaded) | **Native widget** — pre-bundled in the app binary; **never downloaded**; new ones need a client update |
 | Server Action (auto RPC) | **Action system**: `onPressed: action('inc')` → event → server Dart handler → new tree/patch |
 | Streaming / Suspense | Partial tree + placeholders (Phase 2) |
 | Hydration / fast paint | Client caches the last tree, shows it instantly, then refreshes |
+| Importing an npm package in a Server Component | Importing a pub package in backend logic — **server-only, never shipped** |
 
 ## 5. Architecture
 
@@ -85,6 +88,7 @@ Envelope {
   minClientVersion  : semver    // server requires client >= this
   route             : string    // e.g. "/dashboard"
   payloadFormat     : enum { rfwBinary, json }   // default rfwBinary; json = debug / AI-readable
+  components        : bytes     // composite/remote component definitions (encrypted; see §8)
   payload           : bytes     // declarative widget tree (encrypted)
   data              : bytes     // initial state / DynamicContent (encrypted)
   alg               : enum      // signature + AEAD algorithm identifiers
@@ -94,7 +98,7 @@ Envelope {
 }
 ```
 
-- **Authoring → wire:** the developer writes Dart on the server using a builder DSL; the framework **lowers** that tree to the rfw format. The default wire encoding is rfw **binary** (compact). A **`json`** mode produces a human/AI-readable tree for debugging and AI inspection.
+- **Authoring → wire:** the developer writes Dart on the server using a builder DSL; the framework **lowers** that tree (and any composite components) to the rfw format. The default wire encoding is rfw **binary** (compact). A **`json`** mode produces a human/AI-readable tree for debugging and AI inspection.
 - **Versioning & negotiation:** the client sends its `protocolVersion` and catalog capabilities; the server responds with a payload it knows the client can render, or a typed `UpdateRequired` envelope. `minClientVersion` lets the server refuse clients too old to render a page **cleanly**, instead of crashing.
 - **Canonicalization:** signing operates over a deterministic, canonical byte serialization of the envelope (stable field order) so signatures are reproducible across server/client.
 
@@ -127,7 +131,36 @@ The server exposes two HTTP endpoints (via `shelf`):
 - `GET /__page?route=/counter` → returns a signed+encrypted `Envelope`.
 - `POST /__action` → `{ actionId, args, stateToken }` (signed) → runs the handler → returns an `Envelope` (full tree) or a `Patch`.
 
-## 8. Security model ("closed to outside interference")
+## 8. Composite / Remote Components
+
+A **composite component** is a reusable widget that the **server defines by composing catalog primitives** (and other composites) and ships **as declarative data** inside the payload — never as executable code. This is next-dart's port of Next.js's component-composition model, and it is what makes "add a new component from the backend" possible without a client release.
+
+Two kinds of "new widget", with very different cost:
+
+| Kind | Definition | Client update? |
+|---|---|---|
+| **Composite** (e.g., `ProductCard`, `RatingStars`) | Server composes existing primitives/composites; shipped as a declarative sub-tree | **No** — pure backend change |
+| **Native** (e.g., map, camera, custom painter, platform channel) | Requires new native rendering/behavior added to the client catalog | **Yes** — client update + version negotiation |
+
+**Mechanism:** the server DSL lets a developer declare a named, parameterized component:
+
+```dart
+// illustrative — final names settled in the plan
+NdComponent productCard({required NdValue title, required NdValue price, required NdAction onBuy}) =>
+  NdCard(child: NdColumn(children: [
+    NdText(title),
+    NdText(price),
+    NdButton(label: 'Buy', onPressed: onBuy),
+  ]));
+```
+
+These declarations lower to rfw **remote widget library** definitions (rfw natively supports composing core and other remote widgets), travel inside the same signed/encrypted envelope (`components` field, §6), and are resolved by the renderer like any other node. Adding, changing, or removing a composite is a **backend-only** change.
+
+**Backend logic libraries:** importing a pub package for data access, computation, or business logic in a page/action handler is ordinary Dart — it runs **server-side only** and is never shipped to the client. Like Next.js Server Components importing npm packages, this requires **no porting machinery** and **no client update**.
+
+**Phase boundary:** Phase 1 ships the *model* — declare a composite, reference it, render it (the example includes one). Richer authoring DX — a component **registry**, versioned **named component libraries**, and cross-page sharing — is Phase 2.
+
+## 9. Security model ("closed to outside interference")
 
 Four layers; the MVP keeps key management simple with a clean upgrade path.
 
@@ -135,17 +168,17 @@ Four layers; the MVP keeps key management simple with a clean upgrade path.
 |---|---|---|---|---|
 | Transport | HTTPS/TLS + **certificate pinning** in the client | Network MITM, rogue CAs | Pinned cert/public-key | — |
 | Authenticity/Integrity | **Ed25519** signature over the canonical envelope; client verifies with a pinned public key | Payload tampering / UI injection | ✅ | — |
-| Confidentiality | **AES-256-GCM** (AEAD) over `payload` + `data` | Eavesdropping; defense-in-depth if TLS is broken | Provisioned symmetric key + per-message nonce | **X25519 (ECDH) handshake + key rotation** |
+| Confidentiality | **AES-256-GCM** (AEAD) over `components` + `payload` + `data` | Eavesdropping; defense-in-depth if TLS is broken | Provisioned symmetric key + per-message nonce | **X25519 (ECDH) handshake + key rotation** |
 | Version safety | `minClientVersion` + capability negotiation | Rendering a widget the client lacks → crash | ✅ typed `UpdateRequired` | — |
 
 **Core guarantee:** signature verification is the anti-tamper foundation — even if TLS is defeated, an attacker cannot forge a valid UI envelope without the server's signing key. Pinning blocks MITM; AEAD provides confidentiality; versioning prevents render-time crashes.
 
 > MVP simplification: signing/encryption keys are **provisioned** (signing public key + a symmetric key pinned/provisioned in the client build). The envelope already carries `keyId`/`alg`, so moving to an ECDH handshake and key rotation in Phase 3 is additive, not a rewrite.
 
-## 9. Action & data flow
+## 10. Action & data flow
 
 **Render cycle:**
-1. Client requests a route → server builds the tree → signs + encrypts → returns the envelope.
+1. Client requests a route → server builds the tree (+ any composite components) → signs + encrypts → returns the envelope.
 2. Client verifies the signature → decrypts → decodes → renders via the active `NextDartRenderer`.
 
 **Action cycle (the "Server Actions" equivalent):**
@@ -160,7 +193,7 @@ Four layers; the MVP keeps key management simple with a clean upgrade path.
 
 The developer never writes a manual REST API; the action system is the RPC.
 
-## 10. Pluggable render engine
+## 11. Pluggable render engine
 
 ```dart
 abstract class NextDartRenderer {
@@ -174,26 +207,30 @@ abstract class NextDartRenderer {
 - **Replace entirely:** implement `NextDartRenderer` and plug it in — core untouched.
 - **Future option:** a dependency-free reference renderer (`next_dart_basic`) so core users are never forced onto rfw (Phase 2, YAGNI for MVP).
 
-## 11. AI-friendliness
+## 12. AI-friendliness
 
 - **Pure-Dart declarative DSL** with predictable, well-named constructs — the format LLMs know best.
 - **Published JSON Schema** for the `json` wire tree → an AI can generate and validate UI as plain JSON.
 - **Single-file page convention** + concise, example-first docs → minimal context to produce a working page.
-- **`docs/AI_GUIDE.md`** — a short "how to author a next-dart page" document an agent can read and immediately be productive with.
+- **`docs/AI_GUIDE.md`** — a short "how to author a next-dart page (and a composite component)" document an agent can read and immediately be productive with.
 
-## 12. Example app (proof of the full loop)
+## 13. Example app (proof of the full loop)
 
-A **counter / mini-login** example: a Dart server defines the page; the Flutter client renders it; tapping a button hits a server action; the server returns updated UI — all signed, encrypted, and versioned end-to-end. The README demonstrates: *change the server, restart it, and the app updates with no client rebuild.*
+A **counter + product card** example demonstrates both pillars:
+- A server-defined **`ProductCard` composite** (Card + Column + Image + Text + Button), built purely from primitives and shipped as data — proving *"a new component, backend-only, no client rebuild."*
+- A **counter / action round-trip**: tapping a button hits a server action; the server returns updated UI — all signed, encrypted, and versioned end-to-end.
 
-## 13. Testing strategy
+The README demonstrates: *change the server (edit the page or the composite), restart it, and the app updates with no client rebuild.*
+
+## 14. Testing strategy
 
 - **`next_dart_protocol`** — encode/decode round-trip; signature verification (tamper → reject); encrypt/decrypt; version negotiation.
-- **`next_dart_server`** — DSL lowers to the expected payload; action dispatch returns the expected tree/patch.
-- **`next_dart_client`** — a known payload renders the expected widgets; a tampered payload is rejected; an action round-trip updates the UI (against a fake server).
-- **`next_dart_rfw`** — adapter renders a representative tree to the expected rfw widgets.
+- **`next_dart_server`** — DSL lowers to the expected payload; a composite component lowers to the expected remote-widget definition; action dispatch returns the expected tree/patch.
+- **`next_dart_client`** — a known payload renders the expected widgets; a composite resolves and renders; a tampered payload is rejected; an action round-trip updates the UI (against a fake server).
+- **`next_dart_rfw`** — adapter renders a representative tree (incl. a composite) to the expected rfw widgets.
 - **Example integration test** — local server + client through one full action loop.
 
-## 14. Tech choices & dependencies
+## 15. Tech choices & dependencies
 
 | Concern | Choice | Notes |
 |---|---|---|
@@ -204,14 +241,14 @@ A **counter / mini-login** example: a Dart server defines the page; the Flutter 
 
 Exact versions are verified against pub.dev during the planning step.
 
-## 15. Open items (to confirm before pushing)
+## 16. Open items (to confirm before pushing)
 
 1. Target **GitHub account/org** for the public repo.
 2. **pub.dev name** availability for `next_dart_*`; whether to publish now or in a later phase.
 3. Spec/docs **language** (written in English by default for the public, AI-friendly repo).
 
-## 16. Roadmap
+## 17. Roadmap
 
-- **Phase 1 (this spec):** end-to-end core loop — protocol + security, server DSL + actions, client core + rfw adapter, counter/login example, tests, AI guide.
-- **Phase 2:** file-based routing, UI streaming, hot-reload, CLI, optional dependency-free reference renderer.
+- **Phase 1 (this spec):** end-to-end core loop — protocol + security, server DSL + actions, **composite components (model)**, client core + rfw adapter, counter+product-card example, tests, AI guide.
+- **Phase 2:** file-based routing, UI streaming, hot-reload, CLI, component registry / named & versioned component libraries, optional dependency-free reference renderer.
 - **Phase 3:** ECDH handshake + key rotation, ISR/advanced caching, pub.dev release, multi-platform polish.
