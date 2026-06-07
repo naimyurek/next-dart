@@ -7,4 +7,5 @@ export 'src/renderer.dart';
 export 'src/catalog.dart';
 export 'src/source.dart';
 export 'src/client.dart';
+// The hide only deduplicates these re-exported names; they remain public via src/source.dart.
 export 'src/view.dart' hide NdActionDispatcher, NextDartSource;

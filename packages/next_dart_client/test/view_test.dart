@@ -18,6 +18,14 @@ class _FakeRenderer extends NextDartRenderer {
   }
 }
 
+class _ThrowingSource extends NextDartSource {
+  @override
+  Future<EnvelopeContent> fetchPage(String route) async => throw Exception('boom');
+  @override
+  Future<EnvelopeContent> dispatch(String action, Map<String, Object?> args, {required String route}) async =>
+      throw Exception('boom');
+}
+
 class _FakeSource extends NextDartSource {
   int count = 0;
   @override
@@ -43,5 +51,16 @@ void main() {
     await tester.tap(find.text('Count: 0'));
     await tester.pumpAndSettle();
     expect(find.text('Count: 1'), findsOneWidget);
+  });
+
+  testWidgets('view shows a tap-to-retry error fallback when fetch fails', (tester) async {
+    await tester.pumpWidget(NextDartView(
+      source: _ThrowingSource(),
+      route: '/',
+      renderer: _FakeRenderer(),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Error:'), findsOneWidget);
+    expect(find.textContaining('tap to retry'), findsOneWidget);
   });
 }

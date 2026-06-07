@@ -17,6 +17,10 @@ abstract class CatalogNode {
 /// A registry of custom native widgets, keyed by node type. A renderer consults
 /// this before falling back to its built-in catalog, so apps extend the UI
 /// vocabulary without forking the renderer.
+///
+/// [WidgetCatalog] is the documented extension point for renderer adapters
+/// (e.g. `next_dart_rfw`) and is intentionally not yet consumed by the core
+/// in the MVP.
 class WidgetCatalog {
   final Map<String, CatalogBuilder> _builders = {};
   void register(String type, CatalogBuilder builder) => _builders[type] = builder;

@@ -42,7 +42,8 @@ class NextDartClient implements NextDartSource {
 
   Future<EnvelopeContent> _decode(http.Response res) {
     if (res.statusCode != 200) {
-      throw DecodeError('server returned ${res.statusCode}: ${res.body}');
+      final body = res.body.length > 200 ? '${res.body.substring(0, 200)}…' : res.body;
+      throw DecodeError('server returned ${res.statusCode}: $body');
     }
     return decodeEnvelope(
       res.bodyBytes,
@@ -52,5 +53,7 @@ class NextDartClient implements NextDartSource {
     );
   }
 
+  /// The caller owns the client's lifecycle and should call [close] when done
+  /// if they did not inject their own [http.Client].
   void close() => _http.close();
 }
