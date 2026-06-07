@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "next-dart neutral tree node",
+  "description": "A single node in the neutral declarative tree served by next-dart. Nodes serialise as {type, props?, children?, events?}; omitted fields mean empty.",
+  "$ref": "#/definitions/node",
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Catalog widget name (Text, Column, Card, Padding, Image, Button) or a composite component name registered with the app."
+        },
+        "props": {
+          "type": "object",
+          "description": "Named widget properties. Each value is a JSON scalar (string, number, boolean) or an argRef object (used only inside composite component bodies).",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "$ref": "#/definitions/argRef" }
+            ]
+          }
+        },
+        "children": {
+          "type": "array",
+          "description": "Ordered child nodes.",
+          "items": { "$ref": "#/definitions/node" }
+        },
+        "events": {
+          "type": "object",
+          "description": "Map of event name to action reference. E.g. {\"onPressed\": {\"action\": \"inc\"}}.",
+          "additionalProperties": { "$ref": "#/definitions/actionRef" }
+        }
+      }
+    },
+    "actionRef": {
+      "type": "object",
+      "description": "A reference from a node event to a named server (or client) action.",
+      "required": ["action"],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Action identifier registered with app.action()."
+        },
+        "args": {
+          "type": "object",
+          "description": "Optional arguments forwarded to the action handler. Values may be scalars or argRefs.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "$ref": "#/definitions/argRef" }
+            ]
+          }
+        }
+      }
+    },
+    "argRef": {
+      "type": "object",
+      "description": "A reference to a composite-component parameter. Serialises as {\"$arg\": \"paramName\"}. Valid only inside a component body (NdComponentDef.body).",
+      "required": ["$arg"],
+      "additionalProperties": false,
+      "properties": {
+        "$arg": {
+          "type": "string",
+          "description": "Name of the component parameter declared in NdComponentDef.params."
+        }
+      }
+    }
+  }
+}
