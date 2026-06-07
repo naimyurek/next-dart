@@ -39,6 +39,22 @@ void main() {
     expect(lib.widgets.map((w) => w.name), contains('ProductCard'));
   });
 
+  test('action names with quotes are escaped and still parse', () {
+    final content = EnvelopeContent(
+      root: NdNode(
+          type: 'Button',
+          props: {'label': 'X'},
+          events: {'onPressed': NdActionRef(r'a"b')}),
+    );
+    final text = generateRfwText(content);
+    expect(() => parseLibraryFile(text), returnsNormally);
+  });
+
+  test('invalid identifier in node type throws', () {
+    final content = EnvelopeContent(root: NdNode(type: 'Bad Name'));
+    expect(() => generateRfwText(content), throwsA(isA<StateError>()));
+  });
+
   test('strings are escaped and arg refs become args.x', () {
     final content = EnvelopeContent(
       root: NdNode(type: 'Text', props: {'text': r'a"b'}),

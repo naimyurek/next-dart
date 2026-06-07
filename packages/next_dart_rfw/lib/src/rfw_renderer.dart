@@ -12,6 +12,11 @@ import 'rfw_codegen.dart';
 
 /// The default next-dart render engine, backed by rfw. It is the ONLY place rfw
 /// is referenced; swap it by implementing [NextDartRenderer] yourself.
+///
+/// The [Runtime] and [DynamicContent] objects live for the lifetime of this
+/// renderer instance, which is expected to match the widget subtree that owns
+/// it. No explicit disposal is required for rfw 1.1.x — the objects hold no
+/// platform resources and are garbage-collected together with the renderer.
 class RfwRenderer extends NextDartRenderer {
   final Runtime _runtime = Runtime();
   final DynamicContent _data = DynamicContent();
@@ -30,8 +35,12 @@ class RfwRenderer extends NextDartRenderer {
   Widget render(BuildContext context, EnvelopeContent content,
       NdActionDispatcher dispatch) {
     _ensureCatalog();
-    final text = generateRfwText(content);
-    _runtime.update(_main, parseLibraryFile(text));
+    try {
+      final text = generateRfwText(content);
+      _runtime.update(_main, parseLibraryFile(text));
+    } catch (e) {
+      return ErrorWidget('next-dart render error: $e');
+    }
     return RemoteWidget(
       runtime: _runtime,
       data: _data,

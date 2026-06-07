@@ -19,7 +19,10 @@ LocalWidgetLibrary ndCatalog() => LocalWidgetLibrary(<String, LocalWidgetBuilder
             child: source.child(['child']),
           ),
       'Card': (context, source) => Card(child: source.child(['child'])),
-      'Image': (context, source) => Image.network(source.v<String>(['src']) ?? ''),
+      'Image': (context, source) {
+        final src = source.v<String>(['src']) ?? '';
+        return src.isEmpty ? const SizedBox.shrink() : Image.network(src);
+      },
       'Button': (context, source) => ElevatedButton(
             onPressed: source.voidHandler(['onPressed']),
             child: Text(source.v<String>(['label']) ?? ''),
