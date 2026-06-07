@@ -37,7 +37,7 @@ next-dart deliberately reuses Next.js's core insight: the server sends a **seria
 |---|---|
 | File-based routing | Server route → page builder (explicit routing in Phase 1; file-based in Phase 2) |
 | Server Component (no JS shipped) | Server builds a **declarative widget tree** (data); only the *description* travels |
-| RSC payload | **Encrypted + signed + versioned** envelope (rfw-binary default, JSON debug) |
+| RSC payload | **Encrypted + signed + versioned** envelope carrying a **neutral declarative tree** (JSON in MVP; compact `ndBinary` later) |
 | Component composition (components built from primitives) | **Composite / Remote Components** — reusable sub-trees defined on the server, shipped as data; **no client update** (see §8) |
 | Client Component (JS downloaded) | **Native widget** — pre-bundled in the app binary; **never downloaded**; new ones need a client update |
 | Server Action (auto RPC) | **Action system**: `onPressed: action('inc')` → event → server Dart handler → new tree/patch |
@@ -87,7 +87,7 @@ Envelope {
   contentVersion    : int|hash  // which version of this page's UI
   minClientVersion  : semver    // server requires client >= this
   route             : string    // e.g. "/dashboard"
-  payloadFormat     : enum { rfwBinary, json }   // default rfwBinary; json = debug / AI-readable
+  payloadFormat     : enum { json, ndBinary }    // MVP: json (AI-readable). ndBinary = compact next-dart binary (Phase 2)
   components        : bytes     // composite/remote component definitions (encrypted; see §8)
   payload           : bytes     // declarative widget tree (encrypted)
   data              : bytes     // initial state / DynamicContent (encrypted)
@@ -98,7 +98,7 @@ Envelope {
 }
 ```
 
-- **Authoring → wire:** the developer writes Dart on the server using a builder DSL; the framework **lowers** that tree (and any composite components) to the rfw format. The default wire encoding is rfw **binary** (compact). A **`json`** mode produces a human/AI-readable tree for debugging and AI inspection.
+- **Authoring → wire:** the developer writes Dart on the server using a builder DSL; the framework **lowers** that tree (and any composite components) to **next-dart's neutral declarative tree** — a renderer-independent JSON structure, so the server stays rfw-free (per §5). MVP wire encoding is this JSON; a compact `ndBinary` of the *same* tree is a Phase-2 optimization. The **rfw adapter** (§11) translates the neutral tree into rfw at the client — rfw never appears on the wire or in the server.
 - **Versioning & negotiation:** the client sends its `protocolVersion` and catalog capabilities; the server responds with a payload it knows the client can render, or a typed `UpdateRequired` envelope. `minClientVersion` lets the server refuse clients too old to render a page **cleanly**, instead of crashing.
 - **Canonicalization:** signing operates over a deterministic, canonical byte serialization of the envelope (stable field order) so signatures are reproducible across server/client.
 
@@ -250,5 +250,5 @@ Exact versions are verified against pub.dev during the planning step.
 ## 17. Roadmap
 
 - **Phase 1 (this spec):** end-to-end core loop — protocol + security, server DSL + actions, **composite components (model)**, client core + rfw adapter, counter+product-card example, tests, AI guide.
-- **Phase 2:** file-based routing, UI streaming, hot-reload, CLI, component registry / named & versioned component libraries, optional dependency-free reference renderer.
+- **Phase 2:** file-based routing, UI streaming, hot-reload, CLI, component registry / named & versioned component libraries, compact `ndBinary` wire codec, optional dependency-free reference renderer.
 - **Phase 3:** ECDH handshake + key rotation, ISR/advanced caching, pub.dev release, multi-platform polish.
