@@ -7,6 +7,8 @@ import 'keys.dart';
 
 void main() {
   // For Android emulator use http://10.0.2.2:8080; for desktop/web/iOS-sim use localhost.
+  // Demo: the client lives for the whole app lifetime and is intentionally not
+  // closed. In a real app, own it in a StatefulWidget and close it in dispose().
   final client = NextDartClient(
     baseUrl: Uri.parse('http://localhost:8080'),
     signingPublicKey: SimplePublicKey(

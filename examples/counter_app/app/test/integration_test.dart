@@ -12,6 +12,7 @@ import 'package:app/keys.dart';
 
 void main() {
   test('fetch page, increment, and buy through the real handler', () async {
+    // State accumulates across the steps below (same in-process session) — intentional.
     final app = await buildApp();
     final handler = app.handler;
 
