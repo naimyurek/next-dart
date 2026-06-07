@@ -1,0 +1,13 @@
+name: counter_server
+description: Demo backend for the next-dart counter example.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.12.0
+dependencies:
+  next_dart_server:
+    path: ../../../packages/next_dart_server
+  next_dart_protocol:
+    path: ../../../packages/next_dart_protocol
+  cryptography: ^2.9.0
+  shelf: ^1.4.2
