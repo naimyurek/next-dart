@@ -2,7 +2,7 @@ import 'package:next_dart_protocol/next_dart_protocol.dart';
 
 /// Called when a rendered widget fires an action. Implementations post to the
 /// server (server action) or run a pre-bundled client-local action.
-typedef ActionDispatcher = Future<void> Function(
+typedef NdActionDispatcher = Future<void> Function(
     String action, Map<String, Object?> args);
 
 /// The data source a [NextDartView] reads from. Implemented by [NextDartClient];

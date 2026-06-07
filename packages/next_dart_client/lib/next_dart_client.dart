@@ -7,4 +7,4 @@ export 'src/renderer.dart';
 export 'src/catalog.dart';
 export 'src/source.dart';
 export 'src/client.dart';
-export 'src/view.dart' hide ActionDispatcher, NextDartSource;
+export 'src/view.dart' hide NdActionDispatcher, NextDartSource;

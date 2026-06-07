@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart' hide ActionDispatcher;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'package:next_dart_client/src/renderer.dart';
@@ -6,7 +6,7 @@ import 'package:next_dart_client/src/view.dart';
 
 class _FakeRenderer extends NextDartRenderer {
   @override
-  Widget render(BuildContext context, EnvelopeContent content, ActionDispatcher dispatch) {
+  Widget render(BuildContext context, EnvelopeContent content, NdActionDispatcher dispatch) {
     final label = content.root.props['text'] as String;
     return Directionality(
       textDirection: TextDirection.ltr,

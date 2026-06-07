@@ -3,7 +3,7 @@ import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'renderer.dart';
 import 'source.dart';
 
-export 'source.dart' show ActionDispatcher, NextDartSource;
+export 'source.dart' show NdActionDispatcher, NextDartSource;
 
 /// Fetches a route's tree, renders it via [renderer], and re-renders when an
 /// action dispatched by the rendered UI returns a new tree.
