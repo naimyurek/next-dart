@@ -1,0 +1,17 @@
+name: next_dart_client
+description: Flutter core for next-dart — fetch, verify, decrypt, and a pluggable renderer interface.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  next_dart_protocol:
+    path: ../next_dart_protocol
+  cryptography: ^2.9.0
+  http: ^1.2.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
