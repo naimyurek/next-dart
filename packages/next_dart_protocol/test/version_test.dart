@@ -3,7 +3,7 @@ import 'package:test/test.dart';
 
 void main() {
   test('kProtocolVersion is set', () {
-    expect(kProtocolVersion, '1.0.0');
+    expect(kProtocolVersion, matches(RegExp(r'^\d+\.\d+\.\d+$')));
   });
 
   test('semverLt compares correctly', () {

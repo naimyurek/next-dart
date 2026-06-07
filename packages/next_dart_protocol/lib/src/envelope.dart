@@ -79,23 +79,54 @@ Future<EnvelopeContent> decodeEnvelope(
   );
   if (!ok) throw SignatureError();
 
-  final minClient = header['minClientVersion'] as String;
-  if (semverLt(clientVersion, minClient)) {
-    throw UpdateRequiredError(minClient);
+  // Guard version check: a malformed minClientVersion must surface as DecodeError.
+  final minClientRaw = header['minClientVersion'];
+  if (minClientRaw is! String) {
+    throw DecodeError('missing or non-string minClientVersion');
+  }
+  try {
+    if (semverLt(clientVersion, minClientRaw)) {
+      throw UpdateRequiredError(minClientRaw);
+    }
+  } on UpdateRequiredError {
+    rethrow;
+  } on Exception catch (e) {
+    throw DecodeError('malformed minClientVersion "$minClientRaw": $e');
   }
 
-  final plain = await NdCipher().decrypt(
-    base64.decode(header['cipherText'] as String),
-    base64.decode(header['nonce'] as String),
-    base64.decode(header['mac'] as String),
-    secretKey,
-  );
-  final body = (jsonDecode(utf8.decode(plain)) as Map).cast<String, Object?>();
-  return EnvelopeContent(
-    root: NdNode.fromJson((body['root'] as Map).cast<String, Object?>()),
-    components: ((body['components'] as List?) ?? const [])
-        .map((e) => NdComponentDef.fromJson((e as Map).cast<String, Object?>()))
-        .toList(),
-    data: ((body['data'] as Map?)?.cast<String, Object?>()) ?? const {},
-  );
+  // Post-signature field extraction + decrypt: any missing/malformed field
+  // becomes a DecodeError.
+  try {
+    final cipherTextRaw = header['cipherText'];
+    if (cipherTextRaw is! String) throw DecodeError('missing cipherText field');
+    final nonceRaw = header['nonce'];
+    if (nonceRaw is! String) throw DecodeError('missing nonce field');
+    final macRaw = header['mac'];
+    if (macRaw is! String) throw DecodeError('missing mac field');
+
+    final plain = await NdCipher().decrypt(
+      base64.decode(cipherTextRaw),
+      base64.decode(nonceRaw),
+      base64.decode(macRaw),
+      secretKey,
+    );
+    final body =
+        (jsonDecode(utf8.decode(plain)) as Map).cast<String, Object?>();
+    return EnvelopeContent(
+      root: NdNode.fromJson((body['root'] as Map).cast<String, Object?>()),
+      components: ((body['components'] as List?) ?? const [])
+          .map(
+              (e) => NdComponentDef.fromJson((e as Map).cast<String, Object?>()))
+          .toList(),
+      data: ((body['data'] as Map?)?.cast<String, Object?>()) ?? const {},
+    );
+  } on SignatureError {
+    rethrow;
+  } on UpdateRequiredError {
+    rethrow;
+  } on DecodeError {
+    rethrow;
+  } on Exception catch (e) {
+    throw DecodeError('malformed envelope: $e');
+  }
 }

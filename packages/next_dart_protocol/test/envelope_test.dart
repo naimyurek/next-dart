@@ -65,6 +65,26 @@ void main() {
     );
   });
 
+  test('wrong signing key causes SignatureError', () async {
+    final wire = await encodeEnvelope(
+      content: sample(),
+      route: '/',
+      contentVersion: 1,
+      minClientVersion: '1.0.0',
+      keyId: 'k1',
+      secretKey: secret,
+      signingKeyPair: signingKp,
+    );
+    // Generate a different keypair and use its public key for verification.
+    final otherKp = await Ed25519().newKeyPair();
+    final otherPub = await otherKp.extractPublicKey();
+    expect(
+      () => decodeEnvelope(wire,
+          secretKey: secret, signingPublicKey: otherPub, clientVersion: '1.0.0'),
+      throwsA(isA<SignatureError>()),
+    );
+  });
+
   test('client older than minClientVersion is rejected', () async {
     final wire = await encodeEnvelope(
       content: sample(),

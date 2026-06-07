@@ -16,13 +16,13 @@ class NdActionRef {
 
   Map<String, Object?> toJson() => {
         'action': action,
-        if (args.isNotEmpty) 'args': args.map((k, v) => MapEntry(k, encodeValue(v))),
+        if (args.isNotEmpty) 'args': args.map((k, v) => MapEntry(k, _encodeValue(v))),
       };
 
   static NdActionRef fromJson(Map<String, Object?> json) => NdActionRef(
         json['action'] as String,
         ((json['args'] as Map?)?.cast<String, Object?>() ?? const {})
-            .map((k, v) => MapEntry(k, decodeValue(v))),
+            .map((k, v) => MapEntry(k, _decodeValue(v))),
       );
 }
 
@@ -43,7 +43,7 @@ class NdNode {
   Map<String, Object?> toJson() => {
         'type': type,
         if (props.isNotEmpty)
-          'props': props.map((k, v) => MapEntry(k, encodeValue(v))),
+          'props': props.map((k, v) => MapEntry(k, _encodeValue(v))),
         if (children.isNotEmpty)
           'children': children.map((c) => c.toJson()).toList(),
         if (events.isNotEmpty)
@@ -53,7 +53,7 @@ class NdNode {
   static NdNode fromJson(Map<String, Object?> json) => NdNode(
         type: json['type'] as String,
         props: ((json['props'] as Map?)?.cast<String, Object?>() ?? const {})
-            .map((k, v) => MapEntry(k, decodeValue(v))),
+            .map((k, v) => MapEntry(k, _decodeValue(v))),
         children: ((json['children'] as List?) ?? const [])
             .map((e) => NdNode.fromJson((e as Map).cast<String, Object?>()))
             .toList(),
@@ -64,10 +64,10 @@ class NdNode {
 }
 
 /// Encode a prop/arg value: passes through JSON scalars, lowers NdArgRef.
-Object? encodeValue(Object? v) => v is NdArgRef ? v.toJson() : v;
+Object? _encodeValue(Object? v) => v is NdArgRef ? v.toJson() : v;
 
 /// Decode a prop/arg value: recognizes the `{"$arg": ...}` shape.
-Object? decodeValue(Object? v) {
+Object? _decodeValue(Object? v) {
   if (v is Map && v.length == 1 && v.containsKey(r'$arg')) {
     return NdArgRef(v[r'$arg'] as String);
   }
