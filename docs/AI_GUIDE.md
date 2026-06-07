@@ -64,7 +64,6 @@ Flutter app rebuild**.
 ### Define with `ndComponent`
 
 ```dart
-// packages/next_dart_server/src/component_dsl.dart
 final productCard = ndComponent('ProductCard', ['title', 'price', 'id'], (a) {
   return ndCard(
     child: ndColumn([

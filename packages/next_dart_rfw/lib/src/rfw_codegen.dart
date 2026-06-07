@@ -34,6 +34,9 @@ String _event(NdActionRef ref) {
   return 'event ${_string(ref.action)} { $pairs }';
 }
 
+// MVP constraint: prop/arg values are scalars (String, num, bool) or NdArgRef.
+// Richer value types (maps, lists) are out of scope and are excluded from the
+// published JSON Schema. Extend this function if/when they are added.
 String _value(Object? v) {
   if (v is NdArgRef) return 'args.${_ident(v.name)}';
   if (v is num || v is bool) return '$v';

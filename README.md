@@ -15,5 +15,12 @@ ever shipped to the client.**
 | `next_dart_client` | Flutter core. Fetch/verify/decrypt + renderer interface. No rfw. |
 | `next_dart_rfw` | Flutter. rfw-backed renderer (the only rfw dependency). |
 
+## Try the example
+
+A runnable counter + composite-component demo lives in
+[`examples/counter_app`](examples/counter_app/). See its README for run steps —
+the short version: start `examples/counter_app/server` with `dart run bin/server.dart`,
+then `flutter run` in `examples/counter_app/app`.
+
 ## Status
 Phase 1 (MVP). See `docs/superpowers/specs/2026-06-07-next-dart-design.md`.
