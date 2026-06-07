@@ -6,11 +6,8 @@ NdNode ndText(Object text) => NdNode(type: 'Text', props: {'text': text});
 /// Vertical layout.
 NdNode ndColumn(List<NdNode> children) => NdNode(type: 'Column', children: children);
 
-/// Single-child card. The card node adopts the child's children directly,
-/// so the card acts as a layout container. Use [ndColumn]/[ndPadding] inside
-/// to compose multiple children under a Card.
-NdNode ndCard({required NdNode child}) =>
-    NdNode(type: 'Card', props: child.props, children: child.children, events: child.events);
+/// Single-child card.
+NdNode ndCard({required NdNode child}) => NdNode(type: 'Card', children: [child]);
 
 /// Single-child padding (uniform).
 NdNode ndPadding({required double all, required NdNode child}) =>

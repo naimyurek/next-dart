@@ -31,8 +31,11 @@ void main() {
     });
     expect(def.name, 'ProductCard');
     expect(def.params, ['title', 'price', 'id']);
-    expect((def.body.children[0].props['text'] as NdArgRef).name, 'title');
-    expect((def.body.children[2].events['onPressed']!.args['id'] as NdArgRef).name, 'id');
+    // body = Card > Column > [Text, Text, Button]
+    final col = def.body.children[0];
+    expect(col.type, 'Column');
+    expect((col.children[0].props['text'] as NdArgRef).name, 'title');
+    expect((col.children[2].events['onPressed']!.args['id'] as NdArgRef).name, 'id');
   });
 
   test('ndUse instantiates a component by name with props', () {
