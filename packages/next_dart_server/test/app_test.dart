@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
-import 'package:next_dart_server/src/app.dart';
-import 'package:next_dart_server/src/context.dart';
-import 'package:next_dart_server/src/dsl.dart';
+import 'package:next_dart_server/next_dart_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -65,5 +63,26 @@ void main() {
     final res =
         await handler(Request('GET', Uri.parse('http://x/__page?route=/nope')));
     expect(res.statusCode, 404);
+  });
+
+  test('unknown action returns 404', () async {
+    final handler = buildApp().handler;
+    final res = await handler(Request('POST', Uri.parse('http://x/__action'),
+        body: jsonEncode({'action': 'nope', 'route': '/'})));
+    expect(res.statusCode, 404);
+  });
+
+  test('malformed JSON body returns 400', () async {
+    final handler = buildApp().handler;
+    final res = await handler(Request('POST', Uri.parse('http://x/__action'),
+        body: 'not json'));
+    expect(res.statusCode, 400);
+  });
+
+  test('missing action field returns 400', () async {
+    final handler = buildApp().handler;
+    final res = await handler(Request('POST', Uri.parse('http://x/__action'),
+        body: jsonEncode({'route': '/'})));
+    expect(res.statusCode, 400);
   });
 }

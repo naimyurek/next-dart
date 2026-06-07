@@ -1,6 +1,5 @@
 import 'package:next_dart_protocol/next_dart_protocol.dart';
-import 'package:next_dart_server/src/dsl.dart';
-import 'package:next_dart_server/src/component_dsl.dart';
+import 'package:next_dart_server/next_dart_server.dart';
 import 'package:test/test.dart';
 
 void main() {
