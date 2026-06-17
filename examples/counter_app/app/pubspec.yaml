@@ -16,6 +16,12 @@ dependencies:
   cryptography: ^2.9.0
   cupertino_icons: ^1.0.8
 
+dependency_overrides:
+  next_dart_protocol:
+    path: ../../../packages/next_dart_protocol
+  next_dart_client:
+    path: ../../../packages/next_dart_client
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

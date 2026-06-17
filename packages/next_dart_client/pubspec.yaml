@@ -1,17 +1,32 @@
 name: next_dart_client
-description: Flutter core for next-dart — fetch, verify, decrypt, and a pluggable renderer interface.
+description: >-
+  Flutter core for next-dart — fetch, verify, decrypt, and render server-driven
+  UI trees with a pluggable renderer interface and built-in retry logic.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/naimyurek/next-dart
+homepage: https://github.com/naimyurek/next-dart
+issue_tracker: https://github.com/naimyurek/next-dart/issues
+topics:
+  - server-driven-ui
+  - sdui
+  - flutter
+  - dart
+
 environment:
   sdk: ^3.12.0
   flutter: ">=3.44.0"
+
 dependencies:
   flutter:
     sdk: flutter
-  next_dart_protocol:
-    path: ../next_dart_protocol
+  next_dart_protocol: ^0.1.0
   cryptography: ^2.9.0
   http: ^1.2.0
+
+dependency_overrides:
+  next_dart_protocol:
+    path: ../next_dart_protocol
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

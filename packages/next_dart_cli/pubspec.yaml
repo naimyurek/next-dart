@@ -1,7 +1,16 @@
 name: next_dart_cli
-description: CLI tool to scaffold and run next-dart projects.
+description: >-
+  CLI tool to scaffold and run next-dart projects — create new server-driven UI
+  apps, start the dev server, and manage project configuration.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/naimyurek/next-dart
+homepage: https://github.com/naimyurek/next-dart
+issue_tracker: https://github.com/naimyurek/next-dart/issues
+topics:
+  - server-driven-ui
+  - sdui
+  - dart
+  - cli
 
 environment:
   sdk: ^3.12.0

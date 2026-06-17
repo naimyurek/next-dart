@@ -1,18 +1,34 @@
 name: next_dart_rfw
-description: rfw-backed render engine for next-dart (the only package depending on rfw).
+description: >-
+  rfw-backed render engine for next-dart — renders server-driven UI trees using
+  Flutter's remote_flutter_widgets package for declarative remote widgets.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/naimyurek/next-dart
+homepage: https://github.com/naimyurek/next-dart
+issue_tracker: https://github.com/naimyurek/next-dart/issues
+topics:
+  - server-driven-ui
+  - sdui
+  - flutter
+  - rfw
+
 environment:
   sdk: ^3.12.0
   flutter: ">=3.44.0"
+
 dependencies:
   flutter:
     sdk: flutter
+  next_dart_client: ^0.1.0
+  next_dart_protocol: ^0.1.0
+  rfw: ^1.1.3
+
+dependency_overrides:
   next_dart_client:
     path: ../next_dart_client
   next_dart_protocol:
     path: ../next_dart_protocol
-  rfw: ^1.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

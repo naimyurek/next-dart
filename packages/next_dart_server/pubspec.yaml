@@ -1,14 +1,29 @@
 name: next_dart_server
-description: Authoring DSL and HTTP endpoints for next-dart backends.
+description: >-
+  Authoring DSL and HTTP endpoints for next-dart backends — build server-driven
+  UI responses with a fluent Dart API and a ready-made Shelf router.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/naimyurek/next-dart
+homepage: https://github.com/naimyurek/next-dart
+issue_tracker: https://github.com/naimyurek/next-dart/issues
+topics:
+  - server-driven-ui
+  - sdui
+  - dart
+  - shelf
+
 environment:
   sdk: ^3.12.0
+
 dependencies:
-  next_dart_protocol:
-    path: ../next_dart_protocol
+  next_dart_protocol: ^0.1.0
   cryptography: ^2.9.0
   shelf: ^1.4.2
   shelf_router: ^1.1.4
+
+dependency_overrides:
+  next_dart_protocol:
+    path: ../next_dart_protocol
+
 dev_dependencies:
   test: ^1.31.1
