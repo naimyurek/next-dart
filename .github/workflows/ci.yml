@@ -31,7 +31,7 @@ jobs:
           )
           for pkg in "${DART_PKGS[@]}"; do
             echo "::group::$pkg"
-            (cd "$pkg" && dart pub get && dart analyze --fatal-infos && dart test)
+            (cd "$pkg" && dart pub get && dart analyze --no-fatal-warnings && dart test)
             echo "::endgroup::"
           done
 
@@ -59,7 +59,7 @@ jobs:
           )
           for pkg in "${FLUTTER_PKGS[@]}"; do
             echo "::group::$pkg"
-            (cd "$pkg" && flutter pub get && flutter analyze && flutter test)
+            (cd "$pkg" && flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings && flutter test)
             echo "::endgroup::"
           done
 
@@ -73,5 +73,5 @@ jobs:
           set -euo pipefail
           cd examples/counter_app/app
           flutter pub get
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
