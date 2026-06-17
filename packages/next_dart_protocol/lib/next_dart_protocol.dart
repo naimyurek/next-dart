@@ -7,4 +7,6 @@ export 'src/component.dart';
 export 'src/canonical.dart';
 export 'src/crypto.dart';
 export 'src/errors.dart';
-export 'src/envelope.dart';
+export 'src/envelope_body.dart';
+export 'src/binary_codec.dart' show encodeTreeBinary, decodeTreeBinary;
+export 'src/envelope.dart' show EnvelopeContent, NdPayloadFormat, encodeEnvelope, decodeEnvelope;
