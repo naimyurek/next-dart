@@ -41,6 +41,12 @@ class NextDartClient implements NextDartSource {
   String? _sessionKeyId;
   int _expiresAtMillis = 0;
 
+  // ── F9 client-side page cache ─────────────────────────────────────────────
+  /// Keyed by route. Stores the last received full [EnvelopeContent] and its
+  /// server-reported [contentVersion]. Used to send `kv=` on subsequent fetches
+  /// and to return the cached tree when the server replies "not-modified".
+  final Map<String, ({EnvelopeContent content, int version})> _pageCache = {};
+
   NextDartClient({
     required this.baseUrl,
     required this.signingPublicKey,
@@ -97,20 +103,40 @@ class NextDartClient implements NextDartSource {
   }
 
   @override
-  Future<EnvelopeContent> fetchPage(String route) =>
-      _withRehandshake(() async {
-        final session = _liveSessionKey;
-        final sentKid = session != null ? _sessionKeyId : null;
-        final params = {
-          'route': route,
-          if (sentKid != null) 'kid': sentKid,
-        };
-        final res = await _http
-            .get(baseUrl.replace(path: '/__page', queryParameters: params));
-        // Decode under the SAME key the request was sent with.
-        final key = _resolveDecodeKey(session, sentKid);
-        return (res: res, key: key, sentKid: sentKid);
-      });
+  Future<EnvelopeContent> fetchPage(String route) async {
+    final cached = _pageCache[route];
+
+    final content = await _withRehandshake(() async {
+      final session = _liveSessionKey;
+      final sentKid = session != null ? _sessionKeyId : null;
+      final params = {
+        'route': route,
+        if (sentKid != null) 'kid': sentKid,
+        // F9: tell the server which version the client already has.
+        if (cached != null) 'kv': cached.version.toString(),
+      };
+      final res = await _http
+          .get(baseUrl.replace(path: '/__page', queryParameters: params));
+      // Decode under the SAME key the request was sent with.
+      final key = _resolveDecodeKey(session, sentKid);
+      return (res: res, key: key, sentKid: sentKid);
+    });
+
+    // F9: if the server returned a not-modified signal, return the cached tree.
+    if (content.data['notModified'] == true) {
+      final c = _pageCache[route];
+      if (c != null) return c.content;
+      // Defensive: should not happen, but fall through and return the frame.
+    }
+
+    // Full response: update the cache with the new content and version.
+    final newVersion = content.data['contentVersion'];
+    if (newVersion is int) {
+      _pageCache[route] = (content: content, version: newVersion);
+    }
+
+    return content;
+  }
 
   @override
   Future<EnvelopeContent> dispatch(String action, Map<String, Object?> args,
