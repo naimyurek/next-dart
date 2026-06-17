@@ -23,6 +23,15 @@ class NextDartApp {
   final SecretKey secretKey;
   final String keyId;
   final String minClientVersion;
+
+  /// When true, every `/__page`, `/__action`, and `/__stream` request MUST
+  /// carry a valid post-handshake `kid`. A request with no `kid` (or an
+  /// unknown/expired one) returns the 409 re-handshake signal instead of
+  /// falling back to the provisioned key.
+  ///
+  /// Defaults to false, which preserves Phase 1/2 and demo behaviour: a
+  /// missing `kid` silently falls back to the provisioned [secretKey].
+  final bool requireHandshake;
   /// Flat component list kept for back-compat.  Prefer [componentLibraries].
   final List<NdComponentDef> components;
   final List<ComponentLibrary> componentLibraries;
@@ -70,6 +79,7 @@ class NextDartApp {
     this.components = const [],
     this.componentLibraries = const [],
     this.devMode = false,
+    this.requireHandshake = false,
     this.sessionTtl = const Duration(minutes: 30),
     int Function()? nowMillis,
   }) : nowMillis = nowMillis ?? (() => DateTime.now().millisecondsSinceEpoch) {
@@ -142,16 +152,21 @@ class NextDartApp {
   /// Encode one streaming frame as a wire envelope, reusing [encodeEnvelope]
   /// unchanged. The frame kind/slot ride in [content.data].
   ///
-  /// Streaming uses the provisioned key/keyId (the F8 handshake currently
-  /// covers `/__page` and `/__action`; `/__stream` is unchanged).
-  Future<List<int>> _frameFor(String route, EnvelopeContent content) =>
+  /// [sessionKey] and [sessionKeyId] are resolved from the `kid` query param
+  /// so all frames of a stream share the same encryption key.
+  Future<List<int>> _frameFor(
+    String route,
+    EnvelopeContent content, {
+    required SecretKey sessionKey,
+    required String sessionKeyId,
+  }) =>
       encodeEnvelope(
         content: content,
         route: route,
         contentVersion: ++_contentVersion,
         minClientVersion: minClientVersion,
-        keyId: keyId,
-        secretKey: secretKey,
+        keyId: sessionKeyId,
+        secretKey: sessionKey,
         signingKeyPair: signingKeyPair,
       );
 
@@ -159,9 +174,12 @@ class NextDartApp {
   /// under. Either a usable (key, keyId) pair, or a signal that the client must
   /// re-handshake because the named session is unknown/expired.
   ///
-  /// No `kid` at all → the provisioned key (Phase 1/2 back-compat).
+  /// When [requireHandshake] is false (default): no `kid` → the provisioned
+  /// key (Phase 1/2 back-compat). When [requireHandshake] is true: no `kid`
+  /// is treated exactly like an unknown session and returns null → 409.
   ({SecretKey key, String keyId})? _resolveSessionKey(String? kid) {
     if (kid == null || kid.isEmpty) {
+      if (requireHandshake) return null; // no kid is not allowed → re-handshake
       // Back-compat: fall back to the provisioned key.
       return (key: secretKey, keyId: keyId);
     }
@@ -206,7 +224,14 @@ class NextDartApp {
   /// Each yielded chunk is the UTF-8 bytes of `"<base64-envelope>\n"`. Base64
   /// guarantees the envelope bytes never contain a raw newline, so consumers
   /// can split the response on '\n'. Throws [StateError] if [route] has no page.
-  Stream<List<int>> stream(String route) async* {
+  ///
+  /// [sessionKey] and [sessionKeyId] are the resolved encryption key (from the
+  /// `kid` query param); all frames are encrypted under the same key.
+  Stream<List<int>> stream(
+    String route, {
+    required SecretKey sessionKey,
+    required String sessionKeyId,
+  }) async* {
     final match = _pages.resolve(route);
     if (match == null) {
       throw StateError('no such route: $route');
@@ -219,6 +244,8 @@ class NextDartApp {
         components: _registry.all(),
         data: initialFrameData(),
       ),
+      sessionKey: sessionKey,
+      sessionKeyId: sessionKeyId,
     );
     yield _line(initial);
 
@@ -229,6 +256,8 @@ class NextDartApp {
         final patch = await _frameFor(
           route,
           EnvelopeContent(root: resolved, data: patchFrameData(entry.key)),
+          sessionKey: sessionKey,
+          sessionKeyId: sessionKeyId,
         );
         yield _line(patch);
       }
@@ -297,13 +326,19 @@ class NextDartApp {
       if (_pages.resolve(route) == null) {
         return Response.notFound('no such route: $route');
       }
+      // F8: resolve the encryption key from the request's `kid` exactly like
+      // /__page. Under requireHandshake=true, a missing kid → 409.
+      final session = _resolveSessionKey(req.url.queryParameters['kid']);
+      if (session == null) return _rehandshake();
       // Build the full newline-delimited base64 body. Streaming the bytes
       // straight through is equally valid; buffering keeps it simple/testable.
       final body = <int>[];
-      await for (final chunk in stream(route)) {
+      await for (final chunk in stream(route,
+          sessionKey: session.key, sessionKeyId: session.keyId)) {
         body.addAll(chunk);
       }
-      return Response.ok(body, headers: {'content-type': 'text/plain; charset=utf-8'});
+      return Response.ok(body,
+          headers: {'content-type': 'text/plain; charset=utf-8'});
     });
 
     router.post('/__action', (Request req) async {

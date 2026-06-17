@@ -41,7 +41,9 @@ void main() {
 
   test('app.stream emits an initial frame then a patch frame per slot', () async {
     final app = buildApp();
-    final chunks = await app.stream('/').toList();
+    final chunks = await app
+        .stream('/', sessionKey: secret, sessionKeyId: 'k1')
+        .toList();
     // Join all bytes then split into base64 lines (impl may chunk however).
     final body = chunks.map(utf8.decode).join();
     final lines = const LineSplitter()

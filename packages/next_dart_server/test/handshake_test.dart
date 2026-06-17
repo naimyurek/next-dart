@@ -267,4 +267,151 @@ void main() {
       expect(res.statusCode, 400);
     });
   });
+
+  // ── Fix 1: requireHandshake gate ──────────────────────────────────────────
+  group('requireHandshake gate', () {
+    late SimpleKeyPair signingKp;
+    late SimplePublicKey signingPub;
+    final provisioned = SecretKey(List.filled(32, 9));
+    int now = 1000000;
+
+    NextDartApp buildGatedApp({bool requireHandshake = false}) {
+      final app = NextDartApp(
+        signingKeyPair: signingKp,
+        secretKey: provisioned,
+        keyId: 'provisioned',
+        requireHandshake: requireHandshake,
+        nowMillis: () => now,
+      );
+      app.page('/', (ctx) => ndColumn([ndText('ok')]));
+      app.action('noop', (ctx) {});
+      return app;
+    }
+
+    Future<({SecretKey key, String keyId})> doHandshake(Handler handler) async {
+      final x = X25519();
+      final clientKp = await x.newKeyPair();
+      final clientPub = await clientKp.extractPublicKey();
+      final req = Request('POST', Uri.parse('http://x/__handshake'),
+          body: jsonEncode(
+              HandshakeRequest(x25519Pub: base64.encode(clientPub.bytes))
+                  .toJson()));
+      final res = await handler(req);
+      final body =
+          jsonDecode(await res.readAsString()) as Map<String, Object?>;
+      final resp = HandshakeResponse.fromJson(body);
+      final key = await verifyAndDeriveClientSession(
+        response: resp,
+        clientKeyPair: clientKp,
+        clientPubBytes: clientPub.bytes,
+        pinnedServerEd25519Pub: signingPub,
+      );
+      return (key: key, keyId: resp.keyId);
+    }
+
+    setUp(() async {
+      now = 1000000;
+      signingKp = await Ed25519().newKeyPair();
+      signingPub = await signingKp.extractPublicKey();
+    });
+
+    // Fix 1 — /__page
+    test('requireHandshake=true: /__page with no kid → 409', () async {
+      final handler = buildGatedApp(requireHandshake: true).handler;
+      final res = await handler(
+          Request('GET', Uri.parse('http://x/__page?route=/')));
+      expect(res.statusCode, 409);
+      final body = jsonDecode(await res.readAsString()) as Map<String, Object?>;
+      expect(body['error'], 'rehandshake');
+    });
+
+    test(
+        'requireHandshake=true: /__page with valid post-handshake kid → 200 '
+        'decryptable under session key', () async {
+      final handler = buildGatedApp(requireHandshake: true).handler;
+      final session = await doHandshake(handler);
+      final res = await handler(Request('GET',
+          Uri.parse(
+              'http://x/__page?route=/&kid=${Uri.encodeComponent(session.keyId)}')));
+      expect(res.statusCode, 200);
+      final bytes = await res.read().expand((x) => x).toList();
+      final content = await decodeEnvelope(bytes,
+          secretKey: session.key,
+          signingPublicKey: signingPub,
+          clientVersion: '1.0.0');
+      expect(content.root.type, 'Column');
+    });
+
+    test('requireHandshake=false (default): /__page with no kid → 200 '
+        'under provisioned key', () async {
+      final handler = buildGatedApp(requireHandshake: false).handler;
+      final res = await handler(
+          Request('GET', Uri.parse('http://x/__page?route=/')));
+      expect(res.statusCode, 200);
+      final bytes = await res.read().expand((x) => x).toList();
+      final content = await decodeEnvelope(bytes,
+          secretKey: provisioned,
+          signingPublicKey: signingPub,
+          clientVersion: '1.0.0');
+      expect(content.root.type, 'Column');
+    });
+
+    // Fix 1 — /__action
+    test('requireHandshake=true: /__action with no kid → 409', () async {
+      final handler = buildGatedApp(requireHandshake: true).handler;
+      final res = await handler(Request('POST', Uri.parse('http://x/__action'),
+          body: jsonEncode({'action': 'noop', 'args': {}, 'route': '/'})));
+      expect(res.statusCode, 409);
+    });
+
+    // Fix 3 — /__stream
+    test('requireHandshake=true: /__stream with no kid → 409', () async {
+      final handler = buildGatedApp(requireHandshake: true).handler;
+      final res = await handler(
+          Request('GET', Uri.parse('http://x/__stream?route=/')));
+      expect(res.statusCode, 409);
+      final body = jsonDecode(await res.readAsString()) as Map<String, Object?>;
+      expect(body['error'], 'rehandshake');
+    });
+
+    test(
+        'requireHandshake=true: /__stream with valid kid → 200 with frames '
+        'decryptable under session key', () async {
+      final handler = buildGatedApp(requireHandshake: true).handler;
+      final session = await doHandshake(handler);
+      final res = await handler(Request('GET',
+          Uri.parse(
+              'http://x/__stream?route=/&kid=${Uri.encodeComponent(session.keyId)}')));
+      expect(res.statusCode, 200);
+      final raw = await res.readAsString();
+      // At least one non-empty line (the initial frame).
+      final lines =
+          raw.split('\n').where((l) => l.trim().isNotEmpty).toList();
+      expect(lines, isNotEmpty);
+      final frameBytes = base64.decode(lines.first);
+      final content = await decodeEnvelope(frameBytes,
+          secretKey: session.key,
+          signingPublicKey: signingPub,
+          clientVersion: '1.0.0');
+      expect(content.root.type, 'Column');
+    });
+
+    test('requireHandshake=false: /__stream with no kid → 200 under '
+        'provisioned key', () async {
+      final handler = buildGatedApp(requireHandshake: false).handler;
+      final res = await handler(
+          Request('GET', Uri.parse('http://x/__stream?route=/')));
+      expect(res.statusCode, 200);
+      final raw = await res.readAsString();
+      final lines =
+          raw.split('\n').where((l) => l.trim().isNotEmpty).toList();
+      expect(lines, isNotEmpty);
+      final frameBytes = base64.decode(lines.first);
+      final content = await decodeEnvelope(frameBytes,
+          secretKey: provisioned,
+          signingPublicKey: signingPub,
+          clientVersion: '1.0.0');
+      expect(content.root.type, 'Column');
+    });
+  });
 }
