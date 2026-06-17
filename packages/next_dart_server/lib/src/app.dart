@@ -6,16 +6,27 @@ import 'package:cryptography/cryptography.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
+import 'cache.dart';
 import 'component_library.dart';
 import 'context.dart';
+import 'dsl.dart';
 import 'router.dart';
 import 'session.dart';
+
+export 'cache.dart' show RevalidatePolicy;
 
 typedef PageBuilder = NdNode Function(PageContext ctx);
 typedef ActionHandler = void Function(ActionContext ctx);
 
 /// Resolves the replacement subtree for a streaming slot.
 typedef SlotResolver = Future<NdNode> Function();
+
+/// Internal record that couples a [PageBuilder] with its optional [RevalidatePolicy].
+class _PageEntry {
+  final PageBuilder builder;
+  final RevalidatePolicy? revalidate;
+  _PageEntry(this.builder, this.revalidate);
+}
 
 /// A next-dart backend: routes, actions, shared components, and signing keys.
 class NextDartApp {
@@ -56,13 +67,18 @@ class NextDartApp {
   /// Merged, deduplicated, library-stamped registry built at construction.
   late final ComponentRegistry _registry;
 
-  final RouteTable<PageBuilder> _pages = RouteTable();
+  /// Route table now stores _PageEntry (builder + optional revalidation policy).
+  final RouteTable<_PageEntry> _pages = RouteTable();
   final Map<String, ActionHandler> _actions = {};
   // Slot resolvers keyed by route, then by slot id. Insertion order is the
   // patch-frame emission order for that route.
   final Map<String, Map<String, SlotResolver>> _slotResolvers = {};
-  // Increments on every response (page load or action). Phase 2 (multi-session) will scope this per client.
+  // Increments on every rebuild (page load or action). Cached pages keep their
+  // stable version across requests — only a rebuild bumps the counter.
   int _contentVersion = 0;
+
+  // F9: ISR page body cache.
+  final PageCache _cache = PageCache();
 
   // Dev-mode SSE broadcast channel. Only allocated when devMode is true.
   StreamController<String>? _devEvents;
@@ -123,8 +139,13 @@ class NextDartApp {
     _devEvents?.add('reload');
   }
 
-  void page(String pattern, PageBuilder builder) =>
-      _pages.register(RoutePattern.parse(pattern), builder);
+  /// Register a page builder for [pattern].
+  ///
+  /// [revalidate] is the optional ISR caching policy. When null (the default),
+  /// every request invokes [builder] fresh — the pre-F9 behaviour.
+  void page(String pattern, PageBuilder builder, {RevalidatePolicy? revalidate}) {
+    _pages.register(RoutePattern.parse(pattern), _PageEntry(builder, revalidate));
+  }
 
   void action(String id, ActionHandler handler) => _actions[id] = handler;
 
@@ -134,6 +155,76 @@ class NextDartApp {
   void slotResolver(String route, String id, SlotResolver resolve) =>
       (_slotResolvers[route] ??= {})[id] = resolve;
 
+  /// Invalidate the ISR cache for [route], so the next request triggers a
+  /// rebuild. For [RevalidatePolicy.onDemand] pages; safe to call on any route.
+  void revalidate(String route) => _cache.invalidateRoute(route);
+
+  // ── Internal helpers ──────────────────────────────────────────────────────
+
+  /// Resolve (possibly from cache) the [EnvelopeContent] and its stable
+  /// [contentVersion] for a cached page.
+  ///
+  /// Called only when the page has a [RevalidatePolicy]. Returns a record
+  /// with the content and the version number to use in the response.
+  ({EnvelopeContent content, int version}) _resolveFromCache(
+    String route,
+    _PageEntry entry,
+    Map<String, String> params,
+  ) {
+    final cacheKey = PageCache.cacheKey(route, params);
+    final existing = _cache.get(cacheKey);
+    final policy = entry.revalidate!;
+
+    if (existing != null &&
+        policy.isFresh(
+          builtAtMillis: existing.builtAtMillis,
+          nowMillis: nowMillis(),
+          stale: existing.stale,
+        )) {
+      // Cache hit: reuse the body and its stable version without calling the builder.
+      return (content: existing.content, version: existing.contentVersion);
+    }
+
+    // Cache miss or stale: rebuild.
+    final root = entry.builder(PageContext(state, params: params));
+    final version = ++_contentVersion;
+    final content = EnvelopeContent(
+      root: root,
+      components: _registry.all(),
+      data: {'contentVersion': version},
+    );
+    _cache.put(
+      cacheKey,
+      CacheEntry(
+        content: content,
+        contentVersion: version,
+        builtAtMillis: nowMillis(),
+      ),
+    );
+    return (content: content, version: version);
+  }
+
+  /// Build + sign + encrypt the envelope for a cached page's [EnvelopeContent],
+  /// using its [version] as the stable contentVersion.
+  Future<List<int>> _envelopeForCached(
+    String route,
+    EnvelopeContent content,
+    int version, {
+    required SecretKey sessionKey,
+    required String sessionKeyId,
+  }) =>
+      encodeEnvelope(
+        content: content,
+        route: route,
+        contentVersion: version,
+        minClientVersion: minClientVersion,
+        keyId: sessionKeyId,
+        secretKey: sessionKey,
+        signingKeyPair: signingKeyPair,
+      );
+
+  /// Build + sign + encrypt the envelope for an uncached page (legacy path).
+  /// Always increments [_contentVersion].
   Future<List<int>> _envelopeFor(
       String route, PageBuilder builder, Map<String, String> params,
       {required SecretKey sessionKey, required String sessionKeyId}) {
@@ -236,7 +327,7 @@ class NextDartApp {
     if (match == null) {
       throw StateError('no such route: $route');
     }
-    final root = match.value(PageContext(state, params: match.params));
+    final root = match.value.builder(PageContext(state, params: match.params));
     final initial = await _frameFor(
       route,
       EnvelopeContent(
@@ -315,7 +406,52 @@ class NextDartApp {
       // provisioned key when absent). A named-but-dead session → 409.
       final session = _resolveSessionKey(req.url.queryParameters['kid']);
       if (session == null) return _rehandshake();
-      final bytes = await _envelopeFor(route, match.value, match.params,
+
+      final entry = match.value;
+
+      // F9: client's known version, if any.
+      final kvRaw = req.url.queryParameters['kv'];
+      final knownVersion = kvRaw != null ? int.tryParse(kvRaw) : null;
+
+      // ── Cached path ────────────────────────────────────────────────────────
+      if (entry.revalidate != null) {
+        final resolved = _resolveFromCache(route, entry, match.params);
+
+        // Not-modified: client already has this version.
+        if (knownVersion != null && knownVersion == resolved.version) {
+          // Return a small authenticated frame with notModified=true.
+          // The root is minimal (empty column) — the client will ignore it and
+          // show its cached tree. Sign+encrypt under the session key as usual.
+          final nmBytes = await encodeEnvelope(
+            content: EnvelopeContent(
+              root: ndColumn([]),
+              data: {'notModified': true, 'contentVersion': resolved.version},
+            ),
+            route: route,
+            contentVersion: resolved.version,
+            minClientVersion: minClientVersion,
+            keyId: session.keyId,
+            secretKey: session.key,
+            signingKeyPair: signingKeyPair,
+          );
+          return Response.ok(nmBytes,
+              headers: {'content-type': 'application/octet-stream'});
+        }
+
+        // Full cached response (kv absent or stale).
+        final bytes = await _envelopeForCached(
+          route,
+          resolved.content,
+          resolved.version,
+          sessionKey: session.key,
+          sessionKeyId: session.keyId,
+        );
+        return Response.ok(bytes,
+            headers: {'content-type': 'application/octet-stream'});
+      }
+
+      // ── Uncached path (default) ────────────────────────────────────────────
+      final bytes = await _envelopeFor(route, entry.builder, match.params,
           sessionKey: session.key, sessionKeyId: session.keyId);
       return Response.ok(bytes,
           headers: {'content-type': 'application/octet-stream'});
@@ -366,7 +502,7 @@ class NextDartApp {
       final session = _resolveSessionKey(body['kid'] as String?);
       if (session == null) return _rehandshake();
       h(ActionContext(state, args, params: pageMatch.params));
-      final bytes = await _envelopeFor(route, pageMatch.value, pageMatch.params,
+      final bytes = await _envelopeFor(route, pageMatch.value.builder, pageMatch.params,
           sessionKey: session.key, sessionKeyId: session.keyId);
       return Response.ok(bytes,
           headers: {'content-type': 'application/octet-stream'});
