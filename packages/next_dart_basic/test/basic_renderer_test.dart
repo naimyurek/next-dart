@@ -229,6 +229,42 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Slot (streaming placeholder) renders its child
+  // ---------------------------------------------------------------------------
+
+  group('BasicRenderer — Slot', () {
+    testWidgets('renders a Slot\'s fallback child', (tester) async {
+      final content = _content(const NdNode(
+        type: 'Slot',
+        props: {'slot': 'a'},
+        children: [
+          NdNode(type: 'Text', props: {'text': 'Loading…'}),
+        ],
+      ));
+
+      await tester.pumpWidget(
+        Builder(builder: (ctx) =>
+            _wrap(renderer.render(ctx, content, _noopDispatch()))),
+      );
+      await tester.pump();
+
+      expect(find.text('Loading…'), findsOneWidget);
+    });
+
+    testWidgets('an empty Slot renders without throwing', (tester) async {
+      final content = _content(const NdNode(type: 'Slot', props: {'slot': 'a'}));
+
+      await tester.pumpWidget(
+        Builder(builder: (ctx) =>
+            _wrap(renderer.render(ctx, content, _noopDispatch()))),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Unknown widget fallback
   // ---------------------------------------------------------------------------
 

@@ -59,6 +59,13 @@ class BasicRenderer extends NextDartRenderer {
           child: child,
         );
 
+      case 'Slot':
+        // Streaming placeholder: render its single child (fallback, or the
+        // patched-in content once a patch frame has swapped it).
+        return node.children.isNotEmpty
+            ? _renderNode(node.children.first, byName, dispatch)
+            : const SizedBox.shrink();
+
       case 'Image':
         final src = node.props['src'] as String? ?? '';
         return src.isEmpty ? const SizedBox.shrink() : Image.network(src);

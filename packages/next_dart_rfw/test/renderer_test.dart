@@ -32,4 +32,28 @@ void main() {
     await tester.pump();
     expect(captured, ['inc']);
   });
+
+  testWidgets('renders a Slot as a passthrough of its fallback child',
+      (tester) async {
+    final content = EnvelopeContent(
+      root: NdNode(type: 'Column', children: [
+        NdNode(type: 'Slot', props: {'slot': 'a'}, children: [
+          NdNode(type: 'Text', props: {'text': 'Loading…'}),
+        ]),
+      ]),
+    );
+
+    final renderer = RfwRenderer();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) =>
+              renderer.render(context, content, (a, args) async {}),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Loading…'), findsOneWidget);
+  });
 }

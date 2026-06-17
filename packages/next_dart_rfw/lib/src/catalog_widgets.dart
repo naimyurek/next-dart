@@ -19,6 +19,10 @@ LocalWidgetLibrary ndCatalog() => LocalWidgetLibrary(<String, LocalWidgetBuilder
             child: source.child(['child']),
           ),
       'Card': (context, source) => Card(child: source.child(['child'])),
+      // Streaming placeholder: a passthrough of its single child. The codegen
+      // emits a Slot's one child as `child:` (it is a non-Column single-child
+      // node), so the fallback — or patched content — renders directly.
+      'Slot': (context, source) => source.child(['child']),
       'Image': (context, source) {
         final src = source.v<String>(['src']) ?? '';
         return src.isEmpty ? const SizedBox.shrink() : Image.network(src);
