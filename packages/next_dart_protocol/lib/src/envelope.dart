@@ -105,6 +105,29 @@ Future<List<int>> encodeEnvelope({
 }
 
 // ---------------------------------------------------------------------------
+// Header-only read (no crypto)
+// ---------------------------------------------------------------------------
+
+/// Extract the `keyId` field from a signed+encrypted envelope WITHOUT performing
+/// any cryptographic verification. Used by the client as a defence-in-depth
+/// check: after [decodeEnvelope] succeeds (GCM + signature verified), compare
+/// the returned keyId against the kid that was sent, to surface any mismatch
+/// with a clear error rather than silently relying only on the GCM MAC.
+///
+/// Returns null if the bytes cannot be parsed as envelope JSON or if the
+/// `keyId` field is absent / not a String — callers treat null as "unknown".
+String? decodeEnvelopeKeyId(List<int> bytes) {
+  try {
+    final wire =
+        (jsonDecode(utf8.decode(bytes)) as Map).cast<String, Object?>();
+    final v = wire['keyId'];
+    return v is String ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Decode
 // ---------------------------------------------------------------------------
 
