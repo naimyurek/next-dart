@@ -1,4 +1,5 @@
 // packages/next_dart_server/lib/src/app.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
@@ -25,6 +26,10 @@ class NextDartApp {
   final List<ComponentLibrary> componentLibraries;
   final ServerState state = ServerState();
 
+  /// When true, the `/__events` SSE endpoint is active and [bumpContent] can
+  /// be called to push a `reload` event to all connected clients.
+  final bool devMode;
+
   /// Merged, deduplicated, library-stamped registry built at construction.
   late final ComponentRegistry _registry;
 
@@ -36,6 +41,13 @@ class NextDartApp {
   // Increments on every response (page load or action). Phase 2 (multi-session) will scope this per client.
   int _contentVersion = 0;
 
+  // Dev-mode SSE broadcast channel. Only allocated when devMode is true.
+  StreamController<String>? _devEvents;
+
+  /// Exposes the raw dev-event stream for testing (non-null only when devMode
+  /// is true). Tests can listen directly without going through HTTP.
+  Stream<String>? get devEventStream => _devEvents?.stream;
+
   NextDartApp({
     required this.signingKeyPair,
     required this.secretKey,
@@ -43,12 +55,24 @@ class NextDartApp {
     this.minClientVersion = '1.0.0',
     this.components = const [],
     this.componentLibraries = const [],
+    this.devMode = false,
   }) {
     // Throws StateError immediately on duplicate names — fails fast at startup.
     _registry = ComponentRegistry(
       flatComponents: components,
       libraries: componentLibraries,
     );
+    if (devMode) {
+      _devEvents = StreamController<String>.broadcast();
+    }
+  }
+
+  /// Increment the dev content counter and push a `reload` event to all
+  /// connected `/__events` SSE clients. Only effective when [devMode] is true.
+  void bumpContent() {
+    if (!devMode) return;
+    _contentVersion++;
+    _devEvents?.add('reload');
   }
 
   void page(String pattern, PageBuilder builder) =>
@@ -132,6 +156,40 @@ class NextDartApp {
 
   Handler get handler {
     final router = Router();
+
+    // SSE hot-reload endpoint — only active in dev mode.
+    router.get('/__events', (Request req) {
+      if (!devMode) {
+        return Response.notFound('not found');
+      }
+      // Build the SSE body as a broadcast stream of UTF-8 encoded frames.
+      final controller = StreamController<List<int>>();
+
+      // Emit the initial `: connected\n\n` comment so clients can confirm
+      // the stream opened before the first reload event arrives.
+      controller.add(utf8.encode(': connected\n\n'));
+
+      // Subscribe to reload events for as long as this request is alive.
+      final sub = _devEvents!.stream.listen((event) {
+        if (!controller.isClosed) {
+          controller.add(utf8.encode('data: $event\n\n'));
+        }
+      });
+
+      // When the client disconnects, clean up.
+      controller.onCancel = () {
+        sub.cancel();
+      };
+
+      return Response.ok(
+        controller.stream,
+        headers: {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache',
+          'connection': 'keep-alive',
+        },
+      );
+    });
 
     router.get('/__page', (Request req) async {
       final route = req.url.queryParameters['route'] ?? '/';
