@@ -1,0 +1,17 @@
+name: next_dart_basic
+description: Dependency-free (no rfw) Flutter render engine for next-dart, built on plain Flutter widgets.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  next_dart_client:
+    path: ../next_dart_client
+  next_dart_protocol:
+    path: ../next_dart_protocol
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
