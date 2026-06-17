@@ -1,0 +1,16 @@
+name: next_dart_cli
+description: CLI tool to scaffold and run next-dart projects.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  args: ^2.5.0
+
+dev_dependencies:
+  test: ^1.31.1
+
+executables:
+  next_dart: next_dart
