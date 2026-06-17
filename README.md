@@ -73,9 +73,10 @@ flutter analyze packages/next_dart_basic
 > **Windows note:** `dart analyze` on Windows can exit with a non-zero
 > code due to a Dart SDK analyzer shutdown crash that is unrelated to
 > actual code issues. This is a known OS-level quirk. CI runs analyze
-> on Ubuntu (Linux) where it is clean and strict (`--fatal-infos`).
-> On Windows, prefer running `dart test` to verify correctness; skip
-> `dart analyze` in local scripts or ignore the shutdown exit code.
+> on Ubuntu (Linux), where it gates on real errors while treating style
+> infos/warnings as non-blocking (tests are the hard gate). On Windows,
+> prefer running `dart test` to verify correctness; skip `dart analyze`
+> in local scripts or ignore the shutdown exit code.
 
 ### Running the example
 
