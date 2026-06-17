@@ -4,6 +4,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
+import 'component_library.dart';
 import 'context.dart';
 import 'router.dart';
 
@@ -16,8 +17,13 @@ class NextDartApp {
   final SecretKey secretKey;
   final String keyId;
   final String minClientVersion;
+  /// Flat component list kept for back-compat.  Prefer [componentLibraries].
   final List<NdComponentDef> components;
+  final List<ComponentLibrary> componentLibraries;
   final ServerState state = ServerState();
+
+  /// Merged, deduplicated, library-stamped registry built at construction.
+  late final ComponentRegistry _registry;
 
   final RouteTable<PageBuilder> _pages = RouteTable();
   final Map<String, ActionHandler> _actions = {};
@@ -30,7 +36,14 @@ class NextDartApp {
     required this.keyId,
     this.minClientVersion = '1.0.0',
     this.components = const [],
-  });
+    this.componentLibraries = const [],
+  }) {
+    // Throws StateError immediately on duplicate names — fails fast at startup.
+    _registry = ComponentRegistry(
+      flatComponents: components,
+      libraries: componentLibraries,
+    );
+  }
 
   void page(String pattern, PageBuilder builder) =>
       _pages.register(RoutePattern.parse(pattern), builder);
@@ -41,7 +54,7 @@ class NextDartApp {
       String route, PageBuilder builder, Map<String, String> params) {
     final root = builder(PageContext(state, params: params));
     return encodeEnvelope(
-      content: EnvelopeContent(root: root, components: components),
+      content: EnvelopeContent(root: root, components: _registry.all()),
       route: route,
       contentVersion: ++_contentVersion,
       minClientVersion: minClientVersion,
