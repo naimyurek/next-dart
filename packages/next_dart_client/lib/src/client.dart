@@ -40,6 +40,33 @@ class NextDartClient implements NextDartSource {
     return _decode(res);
   }
 
+  @override
+  Stream<EnvelopeContent> streamPage(String route) async* {
+    final req = http.Request(
+        'GET',
+        baseUrl
+            .replace(path: '/__stream', queryParameters: {'route': route}));
+    final res = await _http.send(req);
+    if (res.statusCode != 200) {
+      final body = await res.stream.bytesToString();
+      final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
+      throw DecodeError('server returned ${res.statusCode}: $snippet');
+    }
+    // One base64 envelope per line; decode (verify + decrypt) each frame.
+    final lines = res.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    await for (final line in lines) {
+      if (line.trim().isEmpty) continue;
+      yield await decodeEnvelope(
+        base64.decode(line),
+        secretKey: secretKey,
+        signingPublicKey: signingPublicKey,
+        clientVersion: clientVersion,
+      );
+    }
+  }
+
   Future<EnvelopeContent> _decode(http.Response res) {
     if (res.statusCode != 200) {
       final body = res.body.length > 200 ? '${res.body.substring(0, 200)}…' : res.body;

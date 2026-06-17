@@ -11,4 +11,11 @@ abstract class NextDartSource {
   Future<EnvelopeContent> fetchPage(String route);
   Future<EnvelopeContent> dispatch(String action, Map<String, Object?> args,
       {required String route});
+
+  /// Stream a route's frames: the initial frame (page tree, possibly holding
+  /// `Slot` nodes) followed by a patch frame per slot as async work resolves.
+  /// Consumed by [NextDartStreamView]. The default throws — only sources that
+  /// support UI streaming (e.g. [NextDartClient]) override it.
+  Stream<EnvelopeContent> streamPage(String route) =>
+      throw UnsupportedError('this source does not support streamPage');
 }
