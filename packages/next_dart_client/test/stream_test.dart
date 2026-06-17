@@ -1,7 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
+import 'package:next_dart_client/src/client.dart';
 import 'package:next_dart_client/src/renderer.dart';
 import 'package:next_dart_client/src/source.dart';
 import 'package:next_dart_client/src/stream_view.dart';
@@ -77,6 +82,87 @@ void main() {
       expect(slot.type, kSlotType);
       expect(slot.children.single.props['text'], 'ok');
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // streamPage — real wire seam (server frame bytes -> client decode)
+  // ---------------------------------------------------------------------------
+  //
+  // Mirrors exactly what NextDartApp.stream / the /__stream handler emit: one
+  // base64-encoded envelope per line, newline-delimited. This is the seam
+  // between server output framing and client consumption.
+
+  test('streamPage decodes newline-delimited base64 frames end-to-end',
+      () async {
+    final signingKp = await Ed25519().newKeyPair();
+    final signingPub = await signingKp.extractPublicKey();
+    final secret = SecretKey(List.filled(32, 11));
+
+    Future<List<int>> frame(EnvelopeContent c) => encodeEnvelope(
+          content: c,
+          route: '/',
+          contentVersion: 1,
+          minClientVersion: '1.0.0',
+          keyId: 'k1',
+          secretKey: secret,
+          signingKeyPair: signingKp,
+        );
+
+    // Build the exact server body: base64(envelope) + "\n" per frame.
+    final initialBytes = await frame(EnvelopeContent(
+      root: const NdNode(type: 'Column', children: [
+        NdNode(type: kSlotType, props: {kFrameSlot: 'a'}, children: [
+          NdNode(type: 'Text', props: {'text': 'Loading…'}),
+        ]),
+      ]),
+      data: initialFrameData(),
+    ));
+    final patchBytes = await frame(EnvelopeContent(
+      root: const NdNode(type: 'Text', props: {'text': 'resolved-a'}),
+      data: patchFrameData('a'),
+    ));
+    final body = '${base64.encode(initialBytes)}\n'
+        '${base64.encode(patchBytes)}\n';
+
+    final mock = MockClient.streaming((req, bodyStream) async {
+      expect(req.url.path, '/__stream');
+      expect(req.url.queryParameters['route'], '/');
+      return http.StreamedResponse(
+        Stream.value(utf8.encode(body)),
+        200,
+        headers: {'content-type': 'text/plain; charset=utf-8'},
+      );
+    });
+
+    final client = NextDartClient(
+      baseUrl: Uri.parse('http://test'),
+      signingPublicKey: signingPub,
+      secretKey: secret,
+      httpClient: mock,
+    );
+
+    final frames = await client.streamPage('/').toList();
+    expect(frames.length, 2);
+    expect(frameKind(frames[0].data), kFrameInitial);
+    expect(frames[0].root.children.single.type, kSlotType);
+    expect(frameKind(frames[1].data), kFramePatch);
+    expect(frameSlot(frames[1].data), 'a');
+    expect(frames[1].root.props['text'], 'resolved-a');
+  });
+
+  test('streamPage throws DecodeError on a non-200 stream response', () async {
+    final signingKp = await Ed25519().newKeyPair();
+    final signingPub = await signingKp.extractPublicKey();
+    final secret = SecretKey(List.filled(32, 11));
+    final mock = MockClient.streaming((req, bodyStream) async =>
+        http.StreamedResponse(Stream.value(utf8.encode('nope')), 404));
+    final client = NextDartClient(
+      baseUrl: Uri.parse('http://test'),
+      signingPublicKey: signingPub,
+      secretKey: secret,
+      httpClient: mock,
+    );
+    expect(() => client.streamPage('/').toList(), throwsA(isA<DecodeError>()));
   });
 
   // ---------------------------------------------------------------------------
