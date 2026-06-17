@@ -14,6 +14,8 @@ ever shipped to the client.**
 | `next_dart_server` | Pure Dart. Authoring DSL + HTTP endpoints. |
 | `next_dart_client` | Flutter core. Fetch/verify/decrypt + renderer interface. No rfw. |
 | `next_dart_rfw` | Flutter. rfw-backed renderer (the only rfw dependency). |
+| `next_dart_basic` | Flutter. Dependency-free reference renderer (no rfw). |
+| `next_dart_cli` | Pure Dart. `next_dart` CLI — `new` / `dev` / `doctor`. |
 
 ## Try the example
 
@@ -23,4 +25,9 @@ the short version: start `examples/counter_app/server` with `dart run bin/server
 then `flutter run` in `examples/counter_app/app`.
 
 ## Status
-Phase 1 (MVP). See `docs/superpowers/specs/2026-06-07-next-dart-design.md`.
+Phase 1 (MVP) and Phase 2 delivered. See the design spec
+(`docs/superpowers/specs/2026-06-07-next-dart-design.md`) and the
+Phase 2 plan (`docs/superpowers/plans/2026-06-18-next-dart-phase2.md`).
+Phase 2 adds: routing with params, named/versioned component libraries, a
+compact `ndBinary` codec, a dependency-free renderer, UI streaming, dev
+hot-reload, and a CLI.

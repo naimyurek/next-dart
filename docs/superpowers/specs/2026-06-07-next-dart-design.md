@@ -250,5 +250,5 @@ Exact versions are verified against pub.dev during the planning step.
 ## 17. Roadmap
 
 - **Phase 1 (this spec):** end-to-end core loop — protocol + security, server DSL + actions, **composite components (model)**, client core + rfw adapter, counter+product-card example, tests, AI guide.
-- **Phase 2:** file-based routing, UI streaming, hot-reload, CLI, component registry / named & versioned component libraries, compact `ndBinary` wire codec, optional dependency-free reference renderer.
+- **Phase 2 — DELIVERED (2026-06-18):** routing with path params (`:id`) + a folder convention; named & versioned component libraries; compact `ndBinary` wire codec; a dependency-free reference renderer (`next_dart_basic`); UI streaming (Slot/patch frames as newline-delimited base64 envelopes, each independently signed+encrypted); dev hot-reload (SSE `/__events` + `bumpContent`); and a `next_dart` CLI (`new`/`dev`/`doctor`). See `docs/superpowers/plans/2026-06-18-next-dart-phase2.md`. *Scope notes:* true build_runner file-routing is a documented convention for now; streaming uses HTTP newline-delimited frames (not WebSocket).
 - **Phase 3:** ECDH handshake + key rotation, ISR/advanced caching, pub.dev release, multi-platform polish.
