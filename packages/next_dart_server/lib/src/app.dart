@@ -1,6 +1,7 @@
 // packages/next_dart_server/lib/src/app.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'package:shelf/shelf.dart';
@@ -65,6 +66,28 @@ class NextDartApp {
     if (devMode) {
       _devEvents = StreamController<String>.broadcast();
     }
+  }
+
+  /// Creates an app with freshly generated EPHEMERAL keys and devMode on.
+  ///
+  /// FOR LOCAL DEVELOPMENT ONLY — the keys are random per process and not
+  /// shared with any client, so this is NOT secure and NOT for production.
+  /// Use the real constructor with provisioned keys for anything real.
+  static Future<NextDartApp> dev({
+    List<NdComponentDef> components = const [],
+    List<ComponentLibrary> componentLibraries = const [],
+  }) async {
+    final kp = await Ed25519().newKeyPair();
+    final rng = Random.secure();
+    final secret = SecretKey(List<int>.generate(32, (_) => rng.nextInt(256)));
+    return NextDartApp(
+      signingKeyPair: kp,
+      secretKey: secret,
+      keyId: 'dev',
+      devMode: true,
+      components: components,
+      componentLibraries: componentLibraries,
+    );
   }
 
   /// Increment the dev content counter and push a `reload` event to all

@@ -29,8 +29,8 @@ void main() {
       expect(files['pubspec.yaml'], contains('name: myapp'));
     });
 
-    test('bin/server.dart references buildApp', () {
-      expect(files['bin/server.dart'], contains('buildApp'));
+    test('bin/server.dart references NextDartApp', () {
+      expect(files['bin/server.dart'], contains('NextDartApp'));
     });
 
     test('bin/server.dart references serve / shelf_io', () {
@@ -39,6 +39,18 @@ void main() {
 
     test('lib/app.dart defines buildApp function', () {
       expect(files['lib/app.dart'], contains('buildApp'));
+    });
+
+    test('bin/server.dart uses NextDartApp.dev (not .insecure)', () {
+      final server = files['bin/server.dart']!;
+      expect(server, contains('NextDartApp.dev'));
+      expect(server, isNot(contains('.insecure')));
+    });
+
+    test('lib/app.dart uses NextDartApp.dev (not .insecure)', () {
+      final app = files['lib/app.dart']!;
+      expect(app, contains('NextDartApp.dev'));
+      expect(app, isNot(contains('.insecure')));
     });
 
     test('README.md mentions the project name', () {

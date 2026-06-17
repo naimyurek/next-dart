@@ -24,6 +24,9 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
+  # Until next_dart_server is published to pub.dev, use a path or git dependency:
+  #   path: ../next_dart_server
+  #   git: { url: https://github.com/naimyurek/next-dart, path: packages/next_dart_server }
   next_dart_server:
     path: ../../packages/next_dart_server
   next_dart_protocol:
@@ -35,26 +38,37 @@ String _binServer(String name) => '''
 // bin/server.dart — entrypoint for $name
 import 'dart:io';
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:$name/app.dart';
+import 'package:next_dart_server/next_dart_server.dart';
 
 Future<void> main() async {
-  final app = await buildApp();
+  // NextDartApp.dev() uses ephemeral keys — for local development only.
+  // Replace with the real constructor (signingKeyPair, secretKey, keyId)
+  // before deploying to production.
+  final app = await NextDartApp.dev();
+
+  app.page('/', (ctx) => ndColumn([ndText('Hello from next-dart')]));
+
   final port =
       int.tryParse(const String.fromEnvironment('PORT', defaultValue: '8080'))
           ?? 8080;
   final server =
       await shelf_io.serve(app.handler, InternetAddress.loopbackIPv4, port);
-  stdout.writeln('\$name listening on http://\${server.address.host}:\${server.port}');
+  stdout.writeln('$name listening on http://\${server.address.host}:\${server.port}');
 }
 ''';
 
 String _libApp(String name) => '''
 // lib/app.dart — application definition for $name
+// This file is provided as an optional extraction point.
+// The entrypoint (bin/server.dart) already creates and configures the app
+// inline via NextDartApp.dev(). Move the setup here and call buildApp()
+// from main() if you prefer the separation.
 import 'package:next_dart_server/next_dart_server.dart';
 
 /// Build and configure the $name application.
+/// For development only — uses ephemeral keys via NextDartApp.dev().
 Future<NextDartApp> buildApp() async {
-  final app = NextDartApp.insecure();
+  final app = await NextDartApp.dev();
 
   app.page('/', (ctx) {
     return ndColumn([
