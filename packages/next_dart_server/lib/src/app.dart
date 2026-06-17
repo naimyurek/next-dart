@@ -9,6 +9,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'component_library.dart';
 import 'context.dart';
 import 'router.dart';
+import 'session.dart';
 
 typedef PageBuilder = NdNode Function(PageContext ctx);
 typedef ActionHandler = void Function(ActionContext ctx);
@@ -30,6 +31,18 @@ class NextDartApp {
   /// When true, the `/__events` SSE endpoint is active and [bumpContent] can
   /// be called to push a `reload` event to all connected clients.
   final bool devMode;
+
+  /// How long a handshake-derived session key stays valid (F8). After this the
+  /// client receives a 409 re-handshake signal and transparently renegotiates.
+  final Duration sessionTtl;
+
+  /// Wall-clock source in epoch milliseconds. Defaults to real time; injectable
+  /// so session-expiry behaviour is deterministic in tests. (The server is a
+  /// normal Dart process, so using the real clock by default is fine.)
+  final int Function() nowMillis;
+
+  /// F8 session-key store: keyId -> derived session key + expiry.
+  final SessionStore _sessions = SessionStore();
 
   /// Merged, deduplicated, library-stamped registry built at construction.
   late final ComponentRegistry _registry;
@@ -57,7 +70,9 @@ class NextDartApp {
     this.components = const [],
     this.componentLibraries = const [],
     this.devMode = false,
-  }) {
+    this.sessionTtl = const Duration(minutes: 30),
+    int Function()? nowMillis,
+  }) : nowMillis = nowMillis ?? (() => DateTime.now().millisecondsSinceEpoch) {
     // Throws StateError immediately on duplicate names — fails fast at startup.
     _registry = ComponentRegistry(
       flatComponents: components,
@@ -110,21 +125,25 @@ class NextDartApp {
       (_slotResolvers[route] ??= {})[id] = resolve;
 
   Future<List<int>> _envelopeFor(
-      String route, PageBuilder builder, Map<String, String> params) {
+      String route, PageBuilder builder, Map<String, String> params,
+      {required SecretKey sessionKey, required String sessionKeyId}) {
     final root = builder(PageContext(state, params: params));
     return encodeEnvelope(
       content: EnvelopeContent(root: root, components: _registry.all()),
       route: route,
       contentVersion: ++_contentVersion,
       minClientVersion: minClientVersion,
-      keyId: keyId,
-      secretKey: secretKey,
+      keyId: sessionKeyId,
+      secretKey: sessionKey,
       signingKeyPair: signingKeyPair,
     );
   }
 
   /// Encode one streaming frame as a wire envelope, reusing [encodeEnvelope]
   /// unchanged. The frame kind/slot ride in [content.data].
+  ///
+  /// Streaming uses the provisioned key/keyId (the F8 handshake currently
+  /// covers `/__page` and `/__action`; `/__stream` is unchanged).
   Future<List<int>> _frameFor(String route, EnvelopeContent content) =>
       encodeEnvelope(
         content: content,
@@ -135,6 +154,49 @@ class NextDartApp {
         secretKey: secretKey,
         signingKeyPair: signingKeyPair,
       );
+
+  /// Outcome of resolving a request's `kid` to the key it should be encrypted
+  /// under. Either a usable (key, keyId) pair, or a signal that the client must
+  /// re-handshake because the named session is unknown/expired.
+  ///
+  /// No `kid` at all → the provisioned key (Phase 1/2 back-compat).
+  ({SecretKey key, String keyId})? _resolveSessionKey(String? kid) {
+    if (kid == null || kid.isEmpty) {
+      // Back-compat: fall back to the provisioned key.
+      return (key: secretKey, keyId: keyId);
+    }
+    final live = _sessions.keyFor(kid, nowMillis());
+    if (live == null) return null; // unknown or expired -> re-handshake
+    return (key: live, keyId: kid);
+  }
+
+  /// The 409 body the client recognizes as "your session is gone, handshake
+  /// again". Small, typed, and JSON so both ends agree on the shape.
+  static Response _rehandshake() => Response(
+        409,
+        body: jsonEncode({'error': 'rehandshake'}),
+        headers: {'content-type': 'application/json'},
+      );
+
+  /// Build the signed handshake response for a client's ephemeral public key,
+  /// allocate a fresh session keyId, and store the derived key. Exposed for
+  /// tests; also used by the `POST /__handshake` route.
+  Future<HandshakeResponse> handshake(List<int> clientPubBytes) async {
+    final now = nowMillis();
+    _sessions.prune(now); // opportunistic cleanup
+    final expiresAt = now + sessionTtl.inMilliseconds;
+    // Allocate the keyId first: it is bound into the signed message and used as
+    // the HKDF salt on both sides, so it must be known before deriving.
+    final sessionKeyId = _sessions.allocateId();
+    final result = await buildHandshakeResponse(
+      clientPubBytes: clientPubBytes,
+      serverEd25519: signingKeyPair,
+      keyId: sessionKeyId,
+      expiresAtMillis: expiresAt,
+    );
+    _sessions.store(sessionKeyId, result.sessionKey, expiresAt);
+    return result.response;
+  }
 
   /// Stream a route as newline-delimited base64 envelope frames:
   ///   1. an initial frame carrying the page tree (which may hold Slot nodes);
@@ -220,7 +282,12 @@ class NextDartApp {
       if (match == null) {
         return Response.notFound('no such route: $route');
       }
-      final bytes = await _envelopeFor(route, match.value, match.params);
+      // F8: resolve the encryption key from the request's `kid` (or the
+      // provisioned key when absent). A named-but-dead session → 409.
+      final session = _resolveSessionKey(req.url.queryParameters['kid']);
+      if (session == null) return _rehandshake();
+      final bytes = await _envelopeFor(route, match.value, match.params,
+          sessionKey: session.key, sessionKeyId: session.keyId);
       return Response.ok(bytes,
           headers: {'content-type': 'application/octet-stream'});
     });
@@ -259,11 +326,35 @@ class NextDartApp {
       if (pageMatch == null) {
         return Response.notFound('no such route: $route');
       }
+      // F8: resolve the session key BEFORE running the handler, so a stale
+      // session is rejected (409) without causing an unobservable side effect.
+      final session = _resolveSessionKey(body['kid'] as String?);
+      if (session == null) return _rehandshake();
       h(ActionContext(state, args, params: pageMatch.params));
-      final bytes =
-          await _envelopeFor(route, pageMatch.value, pageMatch.params);
+      final bytes = await _envelopeFor(route, pageMatch.value, pageMatch.params,
+          sessionKey: session.key, sessionKeyId: session.keyId);
       return Response.ok(bytes,
           headers: {'content-type': 'application/octet-stream'});
+    });
+
+    router.post('/__handshake', (Request req) async {
+      final raw = await req.readAsString();
+      HandshakeRequest hsReq;
+      try {
+        final json = (jsonDecode(raw) as Map).cast<String, Object?>();
+        hsReq = HandshakeRequest.fromJson(json);
+      } catch (_) {
+        return Response(400, body: 'invalid handshake request');
+      }
+      final List<int> clientPub;
+      try {
+        clientPub = base64.decode(hsReq.x25519Pub);
+      } catch (_) {
+        return Response(400, body: 'invalid x25519Pub base64');
+      }
+      final resp = await handshake(clientPub);
+      return Response.ok(jsonEncode(resp.toJson()),
+          headers: {'content-type': 'application/json'});
     });
 
     return router.call;
