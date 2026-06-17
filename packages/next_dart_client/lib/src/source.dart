@@ -18,4 +18,9 @@ abstract class NextDartSource {
   /// support UI streaming (e.g. [NextDartClient]) override it.
   Stream<EnvelopeContent> streamPage(String route) =>
       throw UnsupportedError('this source does not support streamPage');
+
+  /// Subscribe to dev hot-reload events from the server's `/__events` SSE
+  /// endpoint. Yields `'reload'` for each reload push. The default returns
+  /// [Stream.empty] so existing fakes and non-dev sources are unaffected.
+  Stream<String> events() => Stream.empty();
 }

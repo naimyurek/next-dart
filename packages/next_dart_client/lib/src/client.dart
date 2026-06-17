@@ -40,6 +40,27 @@ class NextDartClient implements NextDartSource {
     return _decode(res);
   }
 
+  /// Connects to `/__events` via SSE and yields `'reload'` for each reload
+  /// push from the server. Comment lines (starting with `:`) are silently
+  /// skipped. The stream ends when the HTTP connection closes.
+  @override
+  Stream<String> events() async* {
+    final req = http.Request('GET', baseUrl.replace(path: '/__events'));
+    final res = await _http.send(req);
+    if (res.statusCode != 200) {
+      return; // server not in dev mode — simply yield nothing
+    }
+    final lines = res.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    await for (final line in lines) {
+      if (line.startsWith(':')) continue; // SSE comment — skip
+      if (line.startsWith('data: ')) {
+        yield line.substring('data: '.length).trim();
+      }
+    }
+  }
+
   @override
   Stream<EnvelopeContent> streamPage(String route) async* {
     final req = http.Request(

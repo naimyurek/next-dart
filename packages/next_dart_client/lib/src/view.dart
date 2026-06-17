@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'renderer.dart';
@@ -8,6 +10,10 @@ export 'source.dart' show NdActionDispatcher, NextDartSource;
 /// Fetches a route's tree, renders it via [renderer], and re-renders when an
 /// action dispatched by the rendered UI returns a new tree.
 ///
+/// When [hotReload] is true the view subscribes to [NextDartSource.events] and
+/// calls [_load] whenever a `'reload'` event arrives — enabling dev hot-reload
+/// without a manual refresh. The subscription is cancelled in [dispose].
+///
 /// The default error view is tap-to-retry; a custom [errorBuilder] is
 /// responsible for providing its own retry affordance.
 class NextDartView extends StatefulWidget {
@@ -17,6 +23,10 @@ class NextDartView extends StatefulWidget {
   final Widget Function(BuildContext, Object)? errorBuilder;
   final Widget Function(BuildContext)? loadingBuilder;
 
+  /// When true, subscribes to [NextDartSource.events] and re-fetches on each
+  /// `'reload'` event. Intended for dev mode only. Defaults to false.
+  final bool hotReload;
+
   const NextDartView({
     super.key,
     required this.source,
@@ -24,6 +34,7 @@ class NextDartView extends StatefulWidget {
     required this.renderer,
     this.errorBuilder,
     this.loadingBuilder,
+    this.hotReload = false,
   });
 
   @override
@@ -34,11 +45,25 @@ class _NextDartViewState extends State<NextDartView> {
   EnvelopeContent? _content;
   Object? _error;
   bool _dispatching = false;
+  StreamSubscription<String>? _eventSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (widget.hotReload) {
+      _eventSub = widget.source.events().listen((event) {
+        if (event == 'reload' && mounted) {
+          _load();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _eventSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
