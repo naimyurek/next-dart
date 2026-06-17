@@ -5,6 +5,7 @@ import 'package:next_dart_protocol/next_dart_protocol.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'context.dart';
+import 'router.dart';
 
 typedef PageBuilder = NdNode Function(PageContext ctx);
 typedef ActionHandler = void Function(ActionContext ctx);
@@ -18,7 +19,7 @@ class NextDartApp {
   final List<NdComponentDef> components;
   final ServerState state = ServerState();
 
-  final Map<String, PageBuilder> _pages = {};
+  final RouteTable<PageBuilder> _pages = RouteTable();
   final Map<String, ActionHandler> _actions = {};
   // Increments on every response (page load or action). Phase 2 (multi-session) will scope this per client.
   int _contentVersion = 0;
@@ -31,13 +32,14 @@ class NextDartApp {
     this.components = const [],
   });
 
-  void page(String route, PageBuilder builder) => _pages[route] = builder;
+  void page(String pattern, PageBuilder builder) =>
+      _pages.register(RoutePattern.parse(pattern), builder);
+
   void action(String id, ActionHandler handler) => _actions[id] = handler;
 
-  Future<List<int>> _envelopeFor(String route) {
-    assert(_pages.containsKey(route), 'no page builder for route $route');
-    final builder = _pages[route]!;
-    final root = builder(PageContext(state));
+  Future<List<int>> _envelopeFor(
+      String route, PageBuilder builder, Map<String, String> params) {
+    final root = builder(PageContext(state, params: params));
     return encodeEnvelope(
       content: EnvelopeContent(root: root, components: components),
       route: route,
@@ -54,10 +56,11 @@ class NextDartApp {
 
     router.get('/__page', (Request req) async {
       final route = req.url.queryParameters['route'] ?? '/';
-      if (!_pages.containsKey(route)) {
+      final match = _pages.resolve(route);
+      if (match == null) {
         return Response.notFound('no such route: $route');
       }
-      final bytes = await _envelopeFor(route);
+      final bytes = await _envelopeFor(route, match.value, match.params);
       return Response.ok(bytes,
           headers: {'content-type': 'application/octet-stream'});
     });
@@ -78,12 +81,15 @@ class NextDartApp {
       final args = (body['args'] as Map?)?.cast<String, Object?>() ?? const {};
       final h = _actions[id];
       if (h == null) return Response.notFound('no such action: $id');
-      if (!_pages.containsKey(route)) {
+      final pageMatch = _pages.resolve(route);
+      if (pageMatch == null) {
         return Response.notFound('no such route: $route');
       }
-      h(ActionContext(state, args));
-      final bytes = await _envelopeFor(route);
-      return Response.ok(bytes, headers: {'content-type': 'application/octet-stream'});
+      h(ActionContext(state, args, params: pageMatch.params));
+      final bytes =
+          await _envelopeFor(route, pageMatch.value, pageMatch.params);
+      return Response.ok(bytes,
+          headers: {'content-type': 'application/octet-stream'});
     });
 
     return router.call;

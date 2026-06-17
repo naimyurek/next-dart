@@ -14,12 +14,22 @@ class ServerState {
 /// Passed to page builders.
 class PageContext {
   final ServerState state;
-  PageContext(this.state);
+
+  /// Path parameters extracted from a dynamic route, e.g. `{'id': '42'}` for
+  /// a pattern like `/product/:id`. Empty for static (exact) routes.
+  final Map<String, String> params;
+
+  PageContext(this.state, {this.params = const {}});
 }
 
 /// Passed to action handlers.
 class ActionContext {
   final ServerState state;
   final Map<String, Object?> args;
-  ActionContext(this.state, this.args);
+
+  /// Path parameters extracted from a dynamic route, e.g. `{'id': '42'}` for
+  /// a pattern like `/product/:id`. Empty for static (exact) routes.
+  final Map<String, String> params;
+
+  ActionContext(this.state, this.args, {this.params = const {}});
 }
