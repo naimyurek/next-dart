@@ -187,4 +187,179 @@ void main() {
     expect(page.root.props['text'], 'Count: 42');
     expect(server.handshakeCount(), 0); // no handshake happened
   });
+
+  // ── Fix 2: client checks envelope keyId matches the kid it sent ───────────
+  group('Fix 2 — keyId mismatch check', () {
+    // A fake server that returns an envelope whose header keyId deliberately
+    // differs from the kid the client sent.
+    MockClient buildMismatchServer(SimpleKeyPair serverEd) {
+      SecretKey? sessionKey;
+      String? sessionKeyId;
+
+      return MockClient((req) async {
+        if (req.url.path == '/__handshake') {
+          final body = jsonDecode(req.body) as Map<String, Object?>;
+          final hsReq = HandshakeRequest.fromJson(body);
+          final clientPub = base64.decode(hsReq.x25519Pub);
+          final result = await buildHandshakeResponse(
+            clientPubBytes: clientPub,
+            serverEd25519: serverEd,
+            keyId: 'real-kid',
+            expiresAtMillis: 4102444800000,
+          );
+          sessionKey = result.sessionKey;
+          sessionKeyId = result.response.keyId;
+          return http.Response(jsonEncode(result.response.toJson()), 200,
+              headers: {'content-type': 'application/json'});
+        }
+
+        if (req.url.path == '/__page') {
+          // Encrypt the envelope under the session key but stamp a DIFFERENT
+          // keyId in the header — the client should reject this.
+          final env = await encodeEnvelope(
+            content: EnvelopeContent(
+                root: NdNode(type: 'Text', props: {'text': 'ok'})),
+            route: '/',
+            contentVersion: 1,
+            minClientVersion: '1.0.0',
+            keyId: 'WRONG-kid', // ← deliberate mismatch
+            secretKey: sessionKey!,
+            signingKeyPair: serverEd,
+          );
+          return http.Response.bytes(env, 200);
+        }
+
+        return http.Response('not found', 404);
+      });
+    }
+
+    test('envelope keyId mismatch throws DecodeError with clear message',
+        () async {
+      final mock = buildMismatchServer(serverEd25519);
+      final client = NextDartClient(
+        baseUrl: Uri.parse('http://test'),
+        signingPublicKey: serverEd25519Pub,
+        secretKey: provisioned,
+        httpClient: mock,
+      );
+
+      await client.handshake(); // establishes session with kid='real-kid'
+      expect(
+        () => client.fetchPage('/'),
+        throwsA(isA<DecodeError>().having(
+          (e) => e.message,
+          'message',
+          contains('session key id mismatch'),
+        )),
+      );
+    });
+  });
+
+  // ── Fix 3: streamPage threads kid ─────────────────────────────────────────
+  group('Fix 3 — streamPage threads kid', () {
+    // A minimal mock server that serves /__handshake and /__stream, encrypting
+    // each frame under the session key.
+    MockClient buildStreamServer(SimpleKeyPair serverEd, {int count = 0}) {
+      SecretKey? sessionKey;
+      String? sessionKeyId;
+
+      return MockClient((req) async {
+        if (req.url.path == '/__handshake') {
+          final body = jsonDecode(req.body) as Map<String, Object?>;
+          final hsReq = HandshakeRequest.fromJson(body);
+          final clientPub = base64.decode(hsReq.x25519Pub);
+          final result = await buildHandshakeResponse(
+            clientPubBytes: clientPub,
+            serverEd25519: serverEd,
+            keyId: 'stream-kid',
+            expiresAtMillis: 4102444800000,
+          );
+          sessionKey = result.sessionKey;
+          sessionKeyId = result.response.keyId;
+          return http.Response(jsonEncode(result.response.toJson()), 200,
+              headers: {'content-type': 'application/json'});
+        }
+
+        if (req.url.path == '/__stream') {
+          final kid = req.url.queryParameters['kid'];
+          if (kid == null || kid != sessionKeyId || sessionKey == null) {
+            return http.Response(
+                jsonEncode({'error': 'rehandshake'}), 409,
+                headers: {'content-type': 'application/json'});
+          }
+          // Produce two frames, both encrypted under the session key.
+          final buf = StringBuffer();
+          for (var i = 0; i < 2; i++) {
+            final env = await encodeEnvelope(
+              content: EnvelopeContent(
+                  root: NdNode(
+                      type: 'Text', props: {'text': 'frame$i:$count'})),
+              route: '/',
+              contentVersion: i,
+              minClientVersion: '1.0.0',
+              keyId: kid,
+              secretKey: sessionKey!,
+              signingKeyPair: serverEd,
+            );
+            buf.writeln(base64.encode(env));
+          }
+          return http.Response(buf.toString(), 200,
+              headers: {'content-type': 'text/plain'});
+        }
+
+        return http.Response('not found', 404);
+      });
+    }
+
+    test('after handshake, streamPage attaches kid and decrypts session frames',
+        () async {
+      final mock = buildStreamServer(serverEd25519, count: 5);
+      final client = NextDartClient(
+        baseUrl: Uri.parse('http://test'),
+        signingPublicKey: serverEd25519Pub,
+        secretKey: provisioned,
+        httpClient: mock,
+      );
+
+      await client.handshake();
+      final frames = await client.streamPage('/').toList();
+      expect(frames.length, 2);
+      expect(frames[0].root.props['text'], 'frame0:5');
+      expect(frames[1].root.props['text'], 'frame1:5');
+    });
+  });
+
+  // ── Fix 4: handshake-only client (no provisioned key) ─────────────────────
+  group('Fix 4 — handshake-only client (null secretKey)', () {
+    test('client with no secretKey auto-handshakes and fetches page', () async {
+      final server = buildServer(count: 99);
+
+      // Construct a client with NO provisioned key.
+      final client = NextDartClient(
+        baseUrl: Uri.parse('http://test'),
+        signingPublicKey: serverEd25519Pub,
+        // secretKey intentionally omitted → null
+        httpClient: server.mock,
+      );
+
+      // The client has no secretKey and no session → it must handshake first
+      // transparently, then fetch.
+      final page = await client.fetchPage('/');
+      expect(page.root.props['text'], 'Count: 99');
+      expect(server.handshakeCount(), 1); // auto-handshake happened
+    });
+
+    test('client with no secretKey auto-handshakes on dispatch', () async {
+      final server = buildServer(count: 3);
+      final client = NextDartClient(
+        baseUrl: Uri.parse('http://test'),
+        signingPublicKey: serverEd25519Pub,
+        httpClient: server.mock,
+      );
+
+      final after = await client.dispatch('inc', const {}, route: '/');
+      expect(after.root.props['text'], 'Count: 4');
+      expect(server.handshakeCount(), 1);
+    });
+  });
 }
