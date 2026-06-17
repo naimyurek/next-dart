@@ -30,3 +30,8 @@ NdArgRef ndArg(String name) => NdArgRef(name);
 /// Instantiate a composite component [name] with literal [props].
 NdNode ndUse(String name, Map<String, Object?> props) =>
     NdNode(type: name, props: props);
+
+/// A streaming placeholder. Shows [fallback] until a patch frame for slot [id]
+/// arrives. The fallback is carried as the slot's single child.
+NdNode ndSlot(String id, {required NdNode fallback}) =>
+    NdNode(type: kSlotType, props: {kFrameSlot: id}, children: [fallback]);
