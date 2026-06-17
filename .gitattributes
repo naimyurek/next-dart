@@ -1,0 +1,14 @@
+# Normalize text line endings in the repo (LF) while checking out natively.
+# Stops CRLF/LF flapping on Windows-generated files (e.g. Flutter platform code).
+* text=auto
+
+# Binary assets — never normalize.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.ttf  binary
+*.otf  binary
+*.woff  binary
+*.woff2 binary
