@@ -1,16 +1,33 @@
 // packages/next_dart_protocol/lib/src/envelope.dart
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
+import 'binary_codec.dart';
 import 'canonical.dart';
 import 'component.dart';
 import 'crypto.dart';
+import 'envelope_body.dart';
 import 'errors.dart';
 import 'node.dart';
 import 'version.dart';
 
+export 'envelope_body.dart' show EnvelopeBody;
+
 const String kAlg = 'ed25519+aesgcm256';
 
-/// The decrypted payload of an envelope.
+/// Selects the payload encoding used inside the AEAD ciphertext.
+///
+/// The value names match the `payloadFormat` header field values on the wire.
+enum NdPayloadFormat {
+  /// Plaintext is UTF-8 JSON `{root, components, data}` (default; back-compat).
+  json,
+
+  /// Plaintext is a compact binary blob produced by [encodeTreeBinary].
+  ndBinary,
+}
+
+/// The decrypted payload of an envelope (public API type; same shape as
+/// [EnvelopeBody] for convenience).
 class EnvelopeContent {
   final NdNode root;
   final List<NdComponentDef> components;
@@ -22,7 +39,24 @@ class EnvelopeContent {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Conversion helpers between EnvelopeContent and EnvelopeBody
+// ---------------------------------------------------------------------------
+
+EnvelopeBody _contentToBody(EnvelopeContent c) =>
+    EnvelopeBody(root: c.root, components: c.components, data: c.data);
+
+EnvelopeContent _bodyToContent(EnvelopeBody b) =>
+    EnvelopeContent(root: b.root, components: b.components, data: b.data);
+
+// ---------------------------------------------------------------------------
+// Encode
+// ---------------------------------------------------------------------------
+
 /// Build a signed + encrypted wire envelope (UTF-8 JSON bytes).
+///
+/// [format] selects the plaintext encoding inside the AEAD ciphertext.
+/// Defaults to [NdPayloadFormat.json] for backward compatibility.
 Future<List<int>> encodeEnvelope({
   required EnvelopeContent content,
   required String route,
@@ -31,29 +65,48 @@ Future<List<int>> encodeEnvelope({
   required String keyId,
   required SecretKey secretKey,
   required SimpleKeyPair signingKeyPair,
+  NdPayloadFormat format = NdPayloadFormat.json,
 }) async {
-  final plain = utf8.encode(jsonEncode({
-    'root': content.root.toJson(),
-    'components': content.components.map((c) => c.toJson()).toList(),
-    'data': content.data,
-  }));
+  final body = _contentToBody(content);
+
+  final List<int> plain;
+  final String payloadFormatHeader;
+
+  switch (format) {
+    case NdPayloadFormat.json:
+      plain = utf8.encode(jsonEncode({
+        'root': body.root.toJson(),
+        'components': body.components.map((c) => c.toJson()).toList(),
+        'data': body.data,
+      }));
+      payloadFormatHeader = 'json';
+    case NdPayloadFormat.ndBinary:
+      plain = encodeTreeBinary(body);
+      payloadFormatHeader = 'ndBinary';
+  }
+
   final sealed = await NdCipher().encrypt(plain, secretKey);
   final header = <String, Object?>{
     'protocolVersion': kProtocolVersion,
     'contentVersion': contentVersion,
     'minClientVersion': minClientVersion,
     'route': route,
-    'payloadFormat': 'json',
+    'payloadFormat': payloadFormatHeader,
     'alg': kAlg,
     'keyId': keyId,
     'nonce': base64.encode(sealed.nonce),
     'cipherText': base64.encode(sealed.cipherText),
     'mac': base64.encode(sealed.mac),
   };
-  final sig = await NdSigner().sign(canonicalJsonBytes(header), signingKeyPair);
+  final sig =
+      await NdSigner().sign(canonicalJsonBytes(header), signingKeyPair);
   final wire = <String, Object?>{...header, 'signature': base64.encode(sig)};
   return utf8.encode(jsonEncode(wire));
 }
+
+// ---------------------------------------------------------------------------
+// Decode
+// ---------------------------------------------------------------------------
 
 /// Verify, version-check, and decrypt a wire envelope.
 Future<EnvelopeContent> decodeEnvelope(
@@ -110,16 +163,36 @@ Future<EnvelopeContent> decodeEnvelope(
       base64.decode(macRaw),
       secretKey,
     );
-    final body =
-        (jsonDecode(utf8.decode(plain)) as Map).cast<String, Object?>();
-    return EnvelopeContent(
-      root: NdNode.fromJson((body['root'] as Map).cast<String, Object?>()),
-      components: ((body['components'] as List?) ?? const [])
-          .map(
-              (e) => NdComponentDef.fromJson((e as Map).cast<String, Object?>()))
-          .toList(),
-      data: ((body['data'] as Map?)?.cast<String, Object?>()) ?? const {},
-    );
+
+    // Dispatch on payloadFormat.
+    final formatRaw = header['payloadFormat'];
+    final EnvelopeBody body;
+    switch (formatRaw) {
+      case 'json':
+      case null: // back-compat: absent header → assume json
+        final map =
+            (jsonDecode(utf8.decode(plain)) as Map).cast<String, Object?>();
+        body = EnvelopeBody(
+          root:
+              NdNode.fromJson((map['root'] as Map).cast<String, Object?>()),
+          components: ((map['components'] as List?) ?? const [])
+              .map((e) =>
+                  NdComponentDef.fromJson((e as Map).cast<String, Object?>()))
+              .toList(),
+          data:
+              ((map['data'] as Map?)?.cast<String, Object?>()) ?? const {},
+        );
+      case 'ndBinary':
+        // plain is List<int> from NdCipher.decrypt; convert to Uint8List.
+        final uint8 = plain is Uint8List
+            ? plain
+            : Uint8List.fromList(plain as List<int>);
+        body = decodeTreeBinary(uint8);
+      default:
+        throw DecodeError('unknown payloadFormat: "$formatRaw"');
+    }
+
+    return _bodyToContent(body);
   } on SignatureError {
     rethrow;
   } on UpdateRequiredError {
