@@ -10,4 +10,5 @@ export 'src/errors.dart';
 export 'src/envelope_body.dart';
 export 'src/binary_codec.dart' show encodeTreeBinary, decodeTreeBinary;
 export 'src/envelope.dart' show EnvelopeContent, NdPayloadFormat, encodeEnvelope, decodeEnvelope;
+export 'src/handshake.dart';
 export 'src/stream.dart';

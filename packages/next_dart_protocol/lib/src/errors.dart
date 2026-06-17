@@ -22,3 +22,16 @@ class DecodeError implements Exception {
   @override
   String toString() => 'DecodeError: $message';
 }
+
+/// Thrown when an authenticated ECDH handshake response fails verification:
+/// the server's Ed25519 signature over `(pubS ‖ pubC ‖ keyId ‖ expiresAt)` does
+/// not validate against the PINNED server identity key, or the response is
+/// otherwise malformed. A failure here means the handshake may have been
+/// tampered with (e.g. a MITM swapped the server's ephemeral X25519 key) and
+/// the derived session key MUST NOT be trusted.
+class HandshakeError implements Exception {
+  final String message;
+  HandshakeError(this.message);
+  @override
+  String toString() => 'HandshakeError: $message';
+}
