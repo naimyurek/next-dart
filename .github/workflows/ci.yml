@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Pure-Dart packages ──────────────────────────────────────────────────────
+  dart-packages:
+    name: Dart packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Dart packages — pub get + analyze + test
+        shell: bash
+        run: |
+          set -euo pipefail
+          DART_PKGS=(
+            packages/next_dart_protocol
+            packages/next_dart_server
+            packages/next_dart_cli
+          )
+          for pkg in "${DART_PKGS[@]}"; do
+            echo "::group::$pkg"
+            (cd "$pkg" && dart pub get && dart analyze --fatal-infos && dart test)
+            echo "::endgroup::"
+          done
+
+  # ── Flutter packages + example app ─────────────────────────────────────────
+  flutter-packages:
+    name: Flutter packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+
+      - name: Flutter packages — pub get + analyze + test
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLUTTER_PKGS=(
+            packages/next_dart_client
+            packages/next_dart_rfw
+            packages/next_dart_basic
+          )
+          for pkg in "${FLUTTER_PKGS[@]}"; do
+            echo "::group::$pkg"
+            (cd "$pkg" && flutter pub get && flutter analyze && flutter test)
+            echo "::endgroup::"
+          done
+
+      - name: Example server — pub get
+        shell: bash
+        run: dart pub get --directory examples/counter_app/server
+
+      - name: Example app — pub get + analyze + test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd examples/counter_app/app
+          flutter pub get
+          flutter analyze
+          flutter test
