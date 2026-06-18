@@ -1,5 +1,7 @@
 # pub.dev Publishing Guide
 
+**Status: nothing has been published to pub.dev yet — these are the steps the maintainer runs to do so.**
+
 This document describes the exact steps **you** must run to publish the six
 `next-dart` packages to pub.dev.  Claude will never run `dart pub publish`
 without `--dry-run`; the real publish is your decision.

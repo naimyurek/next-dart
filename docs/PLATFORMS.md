@@ -44,16 +44,24 @@ flutter create --platforms=ios .     # adds ios/
 
 Then commit the generated platform directories and update this document.
 
+## CI coverage note
+
+The CI workflow (`flutter-action`) runs on **Linux only**. The table above lists
+the Flutter targets each package *supports* based on its dependencies; those
+targets are not individually exercised in CI.
+
 ## App Store / Play Store compliance
 
-next-dart ships **no executable code** to the client device. The server sends a
-signed, encrypted, versioned *declarative tree* (JSON or binary) describing the
-UI. The Flutter app interprets that tree using a fixed set of native widgets that
-are already bundled in the app binary reviewed by the store.
+next-dart ships **no executable binary code** to the client device. The server
+sends a signed, encrypted, versioned *declarative tree* (JSON or binary)
+describing the UI. The Flutter app parses that tree at runtime using the `rfw`
+package and renders it with a fixed set of native widgets that are already
+bundled in the app binary reviewed by the store.
 
-Because no code ever crosses the network boundary — only data — next-dart
-applications remain compliant with Apple App Store Review Guidelines (§2.5.2)
-and Google Play Developer Policy (no dynamic code loading). Adding a widget that
-the store would flag still requires a client update and a new store review, but
-changing layout, text, colors, component ordering, and behavior defined entirely
-within the declarative tree does not.
+Because no executable binary ever crosses the network boundary — only a
+declarative data format interpreted by native code — next-dart applications are
+designed to remain compliant with Apple App Store Review Guidelines (§2.5.2 and
+§4.7) and Google Play Developer Policy (no dynamic code loading). Adding a
+widget that the store would flag still requires a client update and a new store
+review, but changing layout, text, colors, component ordering, and behavior
+defined entirely within the declarative tree does not.

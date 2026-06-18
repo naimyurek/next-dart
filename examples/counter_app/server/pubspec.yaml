@@ -11,3 +11,9 @@ dependencies:
     path: ../../../packages/next_dart_protocol
   cryptography: ^2.9.0
   shelf: ^1.4.2
+
+dependency_overrides:
+  next_dart_protocol:
+    path: ../../../packages/next_dart_protocol
+  next_dart_server:
+    path: ../../../packages/next_dart_server
